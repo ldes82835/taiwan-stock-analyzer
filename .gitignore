@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.log
+*.vbs
+ngrok.yml
+setup_ngrok.bat
+setup_autostart.bat
+start_with_tunnel.bat
+internet_tunnel.bat
+my_ip.bat
+start.bat
+start_silent.vbs
