@@ -40,7 +40,7 @@
     .main{max-width:1440px;margin:0 auto;padding:24px}
 
     /* MARKET BAR */
-    .mkt{display:flex;align-items:center;gap:28px;flex-wrap:wrap;background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:18px 26px;margin-bottom:22px;box-shadow:var(--shadow)}
+    .mkt{display:flex;align-items:center;gap:20px;flex-wrap:wrap;background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:18px 26px;margin-bottom:22px;box-shadow:var(--shadow)}
     .mkt-index h2{font-size:11px;color:var(--t2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
     .mkt-price{font-family:monospace;font-size:26px;font-weight:800;color:var(--t0)}
     .mkt-change{font-size:13px;font-weight:700;margin-top:2px}
@@ -54,12 +54,26 @@
     .mkt-time{margin-left:auto;text-align:right}
     .mkt-time small{font-size:11px;color:var(--t2)}
     .mkt-time p{font-size:13px;color:var(--t1);margin-top:2px}
+    /* OTC index: smaller secondary display */
+    .mkt-otc h2{font-size:11px;color:var(--t2);letter-spacing:.5px;margin-bottom:4px}
+    .mkt-otc .mkt-price{font-size:20px}
+    .mkt-otc .mkt-change{font-size:12px}
 
     /* TABS */
-    .tabs{display:flex;gap:8px;margin-bottom:18px}
+    .tabs{display:flex;gap:8px;margin-bottom:10px}
     .tab{padding:7px 18px;border-radius:8px;font-size:13px;font-weight:600;border:1px solid var(--border);background:var(--bg2);color:var(--t1);cursor:pointer;transition:all .2s;box-shadow:0 1px 3px rgba(80,50,20,.06)}
     .tab:hover{color:var(--t0);border-color:var(--t1);background:var(--bg3)}
     .tab.active{color:var(--blue);border-color:var(--blue);background:rgba(37,99,184,.07);box-shadow:none}
+
+    /* SUB-SESSION BANNER */
+    .sub-sess-bar{padding:9px 14px;border-radius:9px;font-size:12px;margin-bottom:10px;border:1px solid;display:flex;align-items:flex-start;gap:8px;line-height:1.6}
+    .sub-sess-bar strong{white-space:nowrap;margin-right:4px}
+    .sub-sess-bar.early{background:#fffbeb;border-color:#fde68a;color:#92400e}
+    .sub-sess-bar.mid{background:#eff6ff;border-color:#bfdbfe;color:#1e40af}
+    .sub-sess-bar.late_mid{background:#fdf4ff;border-color:#e9d5ff;color:#6b21a8}
+    .sub-sess-bar.late{background:#fff1f2;border-color:#fecdd3;color:#9f1239}
+    .sub-sess-bar.closing{background:#fff1f2;border-color:#fca5a5;color:#7f1d1d;font-weight:700}
+    .sub-sess-bar.pre_open,.sub-sess-bar.closed{background:var(--bg1);border-color:var(--border);color:var(--t1)}
 
     /* DESC */
     .desc{font-size:13px;color:var(--t1);line-height:1.8;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:13px 20px;margin-bottom:20px;box-shadow:var(--shadow)}
@@ -139,6 +153,18 @@
     /* REASON */
     .reason{font-size:12px;color:var(--t1);line-height:1.75;background:var(--bg1);border:1px solid var(--border);border-radius:8px;padding:10px 13px;margin-bottom:10px}
 
+    /* SCORE BREAKDOWN */
+    .score-bd{background:var(--bg1);border:1px solid var(--border);border-radius:9px;padding:10px 13px;margin-bottom:10px}
+    .sb-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px;flex-wrap:wrap;gap:4px}
+    .sb-ttl{font-size:10px;font-weight:800;color:var(--t2);text-transform:uppercase;letter-spacing:.4px}
+    .sb-formula{font-family:monospace;font-size:10px;color:var(--t1)}
+    .sb-chips{display:flex;gap:6px;flex-wrap:wrap}
+    .sb-chip{font-size:10px;font-weight:700;padding:3px 9px;border-radius:6px}
+    .sb-chip.vol{background:#dbeafe;color:#1e40af}
+    .sb-chip.amp{background:#fef3c7;color:#92400e}
+    .sb-chip.mom{background:#dcfce7;color:#166534}
+    .sb-chip.total{background:var(--t0);color:#fff}
+
     /* ── 盤前：開盤條件區塊 ── */
     .open-cond{background:#eef4ff;border:1px solid #c5d8fd;border-radius:10px;padding:12px 14px;margin-bottom:10px}
     .open-cond-title{font-size:11px;font-weight:800;color:var(--blue);margin-bottom:8px;letter-spacing:.3px}
@@ -148,11 +174,38 @@
     .open-tip{font-size:11px;color:var(--blue);margin-top:6px;line-height:1.6;background:rgba(37,99,184,.06);border-radius:6px;padding:6px 8px}
 
     /* ── 盤中：即時疊加 ── */
-    .rt-bar{background:#fff8f0;border:1px solid rgba(201,48,48,.25);border-radius:10px;padding:10px 14px;margin-bottom:10px;display:flex;align-items:center;gap:12px}
+    .rt-bar{background:#fff8f0;border:1px solid rgba(201,48,48,.25);border-radius:10px;padding:10px 14px;margin-bottom:8px;display:flex;align-items:center;gap:12px}
     .rt-dot{width:8px;height:8px;border-radius:50%;background:var(--red);animation:pulse 1.5s ease-in-out infinite;flex-shrink:0}
     .rt-price{font-family:monospace;font-size:20px;font-weight:800}
     .rt-chg{font-family:monospace;font-size:12px;font-weight:700}
     .rt-vol{font-size:11px;color:var(--t2);margin-left:auto}
+
+    /* BID / ASK */
+    .ba-row{display:flex;gap:7px;margin-bottom:8px}
+    .ba-item{flex:1;background:var(--bg1);border:1px solid var(--border);border-radius:7px;padding:7px 10px;text-align:center}
+    .ba-lbl{font-size:9px;color:var(--t2);font-weight:700;text-transform:uppercase;letter-spacing:.3px;margin-bottom:3px}
+    .ba-val{font-family:monospace;font-size:14px;font-weight:700}
+    .ba-val.bid-v{color:var(--red)}
+    .ba-val.ask-v{color:var(--green)}
+
+    /* AVG PRICE INDICATOR */
+    .avg-ind{font-size:11px;padding:5px 10px;border-radius:7px;margin-bottom:8px;font-weight:700;border:1px solid}
+    .avg-above{background:rgba(201,48,48,.07);border-color:rgba(201,48,48,.3);color:var(--red)}
+    .avg-below{background:rgba(30,138,72,.07);border-color:rgba(30,138,72,.3);color:var(--green)}
+
+    /* ORDER TYPE TIP */
+    .order-tip{border-radius:9px;padding:9px 13px;margin-bottom:10px;font-size:12px;display:flex;align-items:flex-start;gap:8px;border:1px solid;line-height:1.6}
+    .ot-badge{flex-shrink:0;font-size:10px;font-weight:900;padding:2px 7px;border-radius:5px;letter-spacing:.5px;margin-top:1px;white-space:nowrap}
+    .order-tip.ot-red{background:#fff5f5;border-color:#fca5a5;color:#7f1d1d}
+    .order-tip.ot-red .ot-badge{background:#dc2626;color:#fff}
+    .order-tip.ot-blue{background:#eff6ff;border-color:#93c5fd;color:#1e3a5f}
+    .order-tip.ot-blue .ot-badge{background:#2563eb;color:#fff}
+    .order-tip.ot-green{background:#f0fdf4;border-color:#86efac;color:#14532d}
+    .order-tip.ot-green .ot-badge{background:#16a34a;color:#fff}
+    .order-tip.ot-amber{background:#fffbeb;border-color:#fde68a;color:#78350f}
+    .order-tip.ot-amber .ot-badge{background:#d97706;color:#fff}
+    .order-tip.ot-neutral{background:var(--bg1);border-color:var(--border);color:var(--t1)}
+    .order-tip.ot-neutral .ot-badge{background:var(--t2);color:#fff}
 
     /* ── 盤後：績效標籤 ── */
     .perf-badge{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:10px;font-size:13px;font-weight:700;margin-bottom:10px;width:100%}
@@ -160,7 +213,7 @@
     .perf-badge.tp1{background:#f0fdf4;border:1px solid #86efac;color:#166534}
     .perf-badge.sl{background:#fde8e8;border:1px solid #fca5a5;color:#7f1d1d}
     .perf-badge.none{background:var(--bg1);border:1px solid var(--border);color:var(--t1)}
-    .perf-note{font-size:11px;color:var(--t1);margin-top:4px;line-height:1.6;padding:0 2px}
+    .perf-note{font-size:11px;color:var(--t1);margin-top:4px;line-height:1.6;padding:0 2px;margin-bottom:10px}
 
     /* ── 盤後：明日觀察清單 ── */
     .tomorrow{margin-top:36px}
@@ -190,7 +243,7 @@
     @media(max-width:700px){
       .main{padding:14px}
       .grid{grid-template-columns:1fr}
-      .mkt{gap:16px}
+      .mkt{gap:14px}
       .hd{padding:10px 14px}
       .hd-title{font-size:14px}
     }
@@ -216,6 +269,7 @@
 
 <main class="main">
 
+  <!-- 大盤欄 -->
   <div class="mkt" id="mktBar">
     <div class="mkt-index">
       <h2>加權指數 TWII</h2>
@@ -223,6 +277,13 @@
       <div class="mkt-change" id="idxChange">—</div>
     </div>
     <div class="sep"></div>
+    <!-- 新增：櫃買指數 TPEX -->
+    <div class="mkt-index mkt-otc" id="otcBar" style="display:none">
+      <h2>櫃買指數 TPEX</h2>
+      <div class="mkt-price" id="otcPrice">—</div>
+      <div class="mkt-change" id="otcChange">—</div>
+    </div>
+    <div class="sep" id="otcSep" style="display:none"></div>
     <div class="breadth">
       <div class="bth-item"><div class="bth-lbl">上漲</div><div class="bth-val up" id="cntUp">—</div></div>
       <div class="bth-item"><div class="bth-lbl">下跌</div><div class="bth-val down" id="cntDn">—</div></div>
@@ -241,13 +302,16 @@
     <button class="tab" id="tab-post"     onclick="setTab('post')">📋 盤後總結</button>
   </div>
 
+  <!-- 子時段動態提示橫幅 -->
+  <div class="sub-sess-bar pre_open" id="subSessBar" style="display:none"></div>
+
   <div class="desc" id="descEl">載入中…</div>
 
   <div class="criteria">
     <div class="crit"><span class="crit-icon">📦</span>成交量 ≥ 3,000 張</div>
     <div class="crit"><span class="crit-icon">📐</span>當日振幅 ≥ 3%</div>
     <div class="crit"><span class="crit-icon">💰</span>股價 20–300 元</div>
-    <div class="crit"><span class="crit-icon">🔥</span>動能評分排名</div>
+    <div class="crit"><span class="crit-icon">🔢</span>評分＝√量能 × 振幅% × 動能倍率</div>
     <div class="crit"><span class="crit-icon">🎯</span>停損上限 1.5%</div>
     <div class="crit"><span class="crit-icon">⚖️</span>風險報酬 ≥ 1:1.5</div>
   </div>
@@ -266,28 +330,41 @@
   <div class="disclaimer">
     ⚠️ <strong>風險警告：</strong>本系統分析結果僅供技術參考，不構成任何投資建議。
     當沖交易具高度風險，損失可能超過本金。停損/停利點位為系統演算建議，請依個人判斷與風控執行。
+    委託單類型建議（IOC/ROD）為參考性提示，實際下單請自行判斷。
     過去績效不代表未來表現。
   </div>
 </main>
 
 <script>
 /* ══════════════════════════════════════
-   三時段當沖分析前端邏輯
+   三時段當沖分析前端邏輯 v2.1
+   新增：OTC指數、評分透明化、子時段橫幅、IOC/ROD委託建議
 ══════════════════════════════════════ */
 
 const API = { pre: "/api/pre", intraday: "/api/intraday", post: "/api/post" };
 const TABS_DESC = {
-  pre:      "📊 盤前分析：以前一交易日收盤數據為基礎，預算今日觀察清單，並提供開盤量能確認條件。建議搭配期指走勢確認方向，開盤後量能確認再進場。",
-  intraday: "⚡ 盤中即時：以最新成交數據動態篩選標的，並疊加即時報價。量能放大 × 振幅擴張 × 動能位置三維評分，找出最具即時操作潛力的標的。",
+  pre:      "📊 盤前分析：以前一交易日收盤數據為基礎，預算今日觀察清單，並提供開盤量能確認條件。建議搭配期指走勢確認方向，開盤量能確認後再進場。",
+  intraday: "⚡ 盤中即時：以最新成交數據動態篩選標的，疊加即時報價、估算均價位置、委買委賣報價，並依當下盤況提供 IOC / ROD 委託建議。",
   post:     "📋 盤後總結：彙整今日收盤數據，回顧推薦標的的實際表現（停損/停利是否觸及），並自動產生明日盤前觀察清單。",
+};
+
+/* 子時段橫幅文字 */
+const SUB_SESS = {
+  pre_open: { cls: "pre_open", icon: "🌙", tip: "建立觀察清單，預設好進出場價位，確認大盤期指方向後等待開盤。" },
+  early:    { cls: "early",    icon: "🌅", tip: "重點觀察量能是否爆發。開盤5分鐘量 > 昨均量 1.5 倍才考慮進場，切勿在此階段衝動追高。" },
+  mid:      { cls: "mid",      icon: "⏰", tip: "震盪格局為主，等待量縮守穩後的突破機會。振幅收縮後的量能放大才是真突破，持倉注意均價線位置。" },
+  late_mid: { cls: "late_mid", icon: "🕐", tip: "部位開始整理。強勢股若依然守高可持續，弱勢股若跌破均價線建議先行減倉。" },
+  late:     { cls: "late",     icon: "⚡", tip: "尾盤決戰：主力開始平倉，量的變化是關鍵。強勢守高可留倉，弱勢應在 13:15 前完成平倉。" },
+  closing:  { cls: "closing",  icon: "🔔", tip: "⚠️ 最後試算（13:25–13:30）：撮合價量劇烈變化，當沖務必在此前完成平倉！觀察收盤方向作為明日參考。" },
+  closed:   { cls: "closed",   icon: "🌙", tip: "今日交易已結束。可切換至盤後分析查看推薦成效，並預覽明日觀察清單。" },
 };
 
 let currentTab = "intraday";
 let userSetTab  = false;
 let refreshTimer = null;
 
-const fmt2   = n => Number(n).toFixed(2);
-const fmtP   = n => (n >= 0 ? "+" : "") + fmt2(n) + "%";
+const fmt2    = n => Number(n).toFixed(2);
+const fmtP    = n => (n >= 0 ? "+" : "") + fmt2(n) + "%";
 const fmtLots = s => {
   const lots = s / 1000;
   if (lots >= 10000) return (lots / 10000).toFixed(1) + " 萬張";
@@ -304,8 +381,8 @@ tickClock(); setInterval(tickClock, 1000);
 
 /* ── Tab ── */
 function setTab(tab) {
-  userSetTab  = true;
-  currentTab  = tab;
+  userSetTab = true;
+  currentTab = tab;
   document.querySelectorAll(".tab").forEach(el => el.classList.remove("active"));
   document.getElementById("tab-" + tab).classList.add("active");
   document.getElementById("descEl").textContent = TABS_DESC[tab];
@@ -316,6 +393,16 @@ function updateStatusPill(type, label) {
   const pill = document.getElementById("statusPill");
   pill.className = "status-pill " + type;
   pill.textContent = label;
+}
+
+/* ── 子時段橫幅更新 ── */
+function updateSubSessBanner(ssData) {
+  const bar = document.getElementById("subSessBar");
+  if (!ssData) { bar.style.display = "none"; return; }
+  const info = SUB_SESS[ssData.type] || SUB_SESS.closed;
+  bar.className = "sub-sess-bar " + info.cls;
+  bar.innerHTML = `<span style="font-size:16px">${info.icon}</span><span><strong>${ssData.label}：</strong>${info.tip}</span>`;
+  bar.style.display = "flex";
 }
 
 /* ═══════════════════════════════════
@@ -364,11 +451,30 @@ function buildStats(s) {
   </div>`;
 }
 
+/* ── 評分透明化區塊 ── */
+function buildScoreBreakdown(s) {
+  const sb = s.score_breakdown;
+  if (!sb) return "";
+  return `
+  <div class="score-bd">
+    <div class="sb-header">
+      <span class="sb-ttl">📊 評分構成（透明化）</span>
+      <span class="sb-formula">${sb.formula} = ${sb.total}</span>
+    </div>
+    <div class="sb-chips">
+      <span class="sb-chip vol">量能 √${sb.vol_factor}</span>
+      <span class="sb-chip amp">振幅 ${sb.amp_factor}%</span>
+      <span class="sb-chip mom">動能 ${sb.mom_factor}×</span>
+      <span class="sb-chip total">總分 ${sb.total}</span>
+    </div>
+  </div>`;
+}
+
 function buildCardHeader(s, rank) {
   const dirMap = {
-    long:    [`<span class="badge badge-long">作多</span>`,    "up"],
-    short:   [`<span class="badge badge-short">謹慎</span>`,   "down"],
-    neutral: [`<span class="badge badge-neutral">觀察</span>`, "neutral"],
+    long:    [`<span class="badge badge-long">▲ 偏多</span>`,    "up"],
+    short:   [`<span class="badge badge-short">▼ 偏空</span>`,   "down"],
+    neutral: [`<span class="badge badge-neutral">◆ 觀察</span>`, "neutral"],
   };
   const [dirBadge, priceClass] = dirMap[s.direction] || dirMap.neutral;
   const strengthLbl   = {strong:"強烈推薦", medium:"中等推薦", weak:"一般關注"}[s.strength] ?? "一般關注";
@@ -407,6 +513,7 @@ function buildPreCard(s, rank) {
     <div class="open-tip">💡 ${oc.strategy || "—"}</div>
   </div>
   ${buildStats(s)}
+  ${buildScoreBreakdown(s)}
   <div class="reason">📌 ${s.reason}</div>
 </div>`;
 }
@@ -419,6 +526,18 @@ function buildIntradayCard(s, rank) {
   if (s.realtime) {
     const rt = s.realtime;
     const rtClass = rt.realtime_change_pct >= 0 ? "up" : "down";
+    const avgText = rt.avg_price
+      ? (rt.above_avg
+          ? `現價 ${fmt2(rt.realtime_price)} ▲ 均價估算 ${fmt2(rt.avg_price)}（偏多）`
+          : `現價 ${fmt2(rt.realtime_price)} ▼ 均價估算 ${fmt2(rt.avg_price)}（偏弱）`)
+      : "";
+    const avgCls = rt.above_avg === true ? "avg-above" : rt.above_avg === false ? "avg-below" : "";
+    const baHtml = (rt.bid && rt.ask) ? `
+    <div class="ba-row">
+      <div class="ba-item"><div class="ba-lbl">委買 Bid</div><div class="ba-val bid-v">${fmt2(rt.bid)}</div></div>
+      <div class="ba-item"><div class="ba-lbl">委賣 Ask</div><div class="ba-val ask-v">${fmt2(rt.ask)}</div></div>
+      <div class="ba-item"><div class="ba-lbl">買賣差</div><div class="ba-val">${fmt2(rt.ask - rt.bid)}</div></div>
+    </div>` : "";
     rtHtml = `
     <div class="rt-bar">
       <div class="rt-dot"></div>
@@ -427,14 +546,30 @@ function buildIntradayCard(s, rank) {
         <div class="rt-chg ${rtClass}">${fmtP(rt.realtime_change_pct)} 即時</div>
       </div>
       ${rt.realtime_volume_k ? `<div class="rt-vol">即時量 ${fmtLots(rt.realtime_volume_k)}</div>` : ""}
+    </div>
+    ${baHtml}
+    ${avgText ? `<div class="avg-ind ${avgCls}">${avgText}</div>` : ""}`;
+  }
+
+  /* IOC / ROD 委託建議 */
+  let otHtml = "";
+  if (s.order_tip) {
+    const ot = s.order_tip;
+    otHtml = `
+    <div class="order-tip ot-${ot.color}">
+      <span class="ot-badge">${ot.type}</span>
+      <span><strong>${ot.label}：</strong>${ot.tip}</span>
     </div>`;
   }
+
   return `
 <div class="card ${s.strength}">
   ${buildCardHeader(s, rank)}
   ${rtHtml}
+  ${otHtml}
   ${buildLevels(s)}
   ${buildStats(s)}
+  ${buildScoreBreakdown(s)}
   <div class="reason">💡 ${s.reason}</div>
 </div>`;
 }
@@ -443,10 +578,10 @@ function buildIntradayCard(s, rank) {
    盤後卡片
 ═══════════════════════════════════ */
 function buildPostCard(s, rank) {
-  const perf    = s.performance || {};
-  const result  = perf.result  || "none";
-  const label   = perf.label   || "—";
-  const note    = perf.note    || "";
+  const perf   = s.performance || {};
+  const result = perf.result  || "none";
+  const label  = perf.label   || "—";
+  const note   = perf.note    || "";
   return `
 <div class="card ${s.strength}">
   ${buildCardHeader(s, rank)}
@@ -454,6 +589,7 @@ function buildPostCard(s, rank) {
   <div class="perf-note">${note}</div>
   ${buildLevels(s)}
   ${buildStats(s)}
+  ${buildScoreBreakdown(s)}
   <div class="reason">📋 ${s.reason}</div>
 </div>`;
 }
@@ -495,6 +631,9 @@ async function loadData() {
 
     updateStatusPill(data.status, data.status_label);
 
+    /* 子時段橫幅 */
+    if (data.sub_session) updateSubSessBanner(data.sub_session);
+
     if (!userSetTab) {
       currentTab = data.status;
       document.querySelectorAll(".tab").forEach(el => el.classList.remove("active"));
@@ -503,14 +642,28 @@ async function loadData() {
     document.getElementById("descEl").textContent = TABS_DESC[currentTab] ?? TABS_DESC.post;
     document.getElementById("dataTime").textContent = data.timestamp ?? "—";
 
+    /* 加權指數 */
     if (data.market_index) {
-      const idx = data.market_index;
+      const idx  = data.market_index;
       document.getElementById("idxPrice").textContent =
         idx.price.toLocaleString("zh-TW", { minimumFractionDigits: 2 });
       const chgEl = document.getElementById("idxChange");
       const sign  = idx.change >= 0 ? "+" : "";
       chgEl.textContent = `${sign}${fmt2(idx.change)}（${sign}${fmt2(idx.change_pct)}%）`;
       chgEl.className   = "mkt-change " + (idx.change >= 0 ? "up" : "down");
+    }
+
+    /* 櫃買指數 */
+    if (data.otc_index) {
+      const otc = data.otc_index;
+      document.getElementById("otcPrice").textContent =
+        otc.price.toLocaleString("zh-TW", { minimumFractionDigits: 2 });
+      const otcChgEl = document.getElementById("otcChange");
+      const sign = otc.change >= 0 ? "+" : "";
+      otcChgEl.textContent = `${sign}${fmt2(otc.change)}（${sign}${fmt2(otc.change_pct)}%）`;
+      otcChgEl.className   = "mkt-change " + (otc.change >= 0 ? "up" : "down");
+      document.getElementById("otcBar").style.display  = "";
+      document.getElementById("otcSep").style.display  = "";
     }
 
     if (data.market_stats) {
@@ -521,10 +674,9 @@ async function loadData() {
         `從 ${data.market_stats.total ?? "?"} 檔篩出 ${data.market_stats.filtered ?? "?"} 檔候選`;
     }
 
-    // 標題
     const titles = {
       pre:      "📊 盤前推薦標的 Top 5（含開盤確認條件）",
-      intraday: "⚡ 盤中推薦標的 Top 5",
+      intraday: "⚡ 盤中推薦標的 Top 5（含委託建議）",
       post:     "📋 今日推薦成效回顧 Top 5",
     };
     document.getElementById("secTitle").textContent = titles[currentTab] || titles.intraday;
@@ -535,16 +687,13 @@ async function loadData() {
     if (data.error) {
       grid.innerHTML = `<div class="state-box err"><h3>⚠️ ${data.error}</h3>
         <p>請確認網路連線，或等待交易時段後重試。若為盤前時段，TWSE 數據可能尚未更新。</p></div>`;
-      tmr.innerHTML = "";
-      return;
+      tmr.innerHTML = ""; return;
     }
     if (!data.recommendations?.length) {
       grid.innerHTML = `<div class="state-box"><h3>📭 今日無符合條件的標的</h3><p>請稍後再試。</p></div>`;
-      tmr.innerHTML = "";
-      return;
+      tmr.innerHTML = ""; return;
     }
 
-    // 依 tab 選用不同卡片樣式
     if (currentTab === "pre") {
       grid.innerHTML = data.recommendations.map((s, i) => buildPreCard(s, i+1)).join("");
       tmr.innerHTML  = "";
@@ -564,7 +713,7 @@ async function loadData() {
   } finally {
     btn.disabled = false; btn.textContent = "↻ 更新";
     const inMkt = isInMarket();
-    document.getElementById("pulseDot").className  = "dot" + (inMkt ? "" : " idle");
+    document.getElementById("pulseDot").className   = "dot" + (inMkt ? "" : " idle");
     document.getElementById("pulseLabel").textContent = inMkt ? "30 秒更新" : "5 分更新";
   }
 }
