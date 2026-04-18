@@ -976,8 +976,9 @@ function renderLog() {
     try { entry = JSON.parse(localStorage.getItem(key) || "{}"); }
     catch (e) { entry = {}; }
     const stocks = entry.stocks || [];
+    const TAB_LBL  = {pre:"盤前", intraday:"盤中", post:"盤後"};
     const tabBadge = entry.tab
-      ? `<span class="log-tab-badge log-tab-${entry.tab}">${{pre:"盤前",intraday:"盤中",post:"盤後"}[entry.tab] || entry.tab}</span>`
+      ? `<span class="log-tab-badge log-tab-${entry.tab}">${TAB_LBL[entry.tab] || entry.tab}</span>`
       : "";
     return `
     <div class="log-day">
