@@ -511,6 +511,40 @@ const fmtLots = s => {
   return lots.toFixed(0) + " 張";
 };
 
+/* ── 台股升降單位（Tick Size）四捨五入 ──
+   依 TWSE 規定：
+   < 10 → 0.01 | 10~50 → 0.05 | 50~100 → 0.10
+   100~500 → 0.5 | 500~1000 → 1 | ≥1000 → 5          */
+function tickSize(price) {
+  if (price <    10) return 0.01;
+  if (price <    50) return 0.05;
+  if (price <   100) return 0.1;
+  if (price <   500) return 0.5;
+  if (price <  1000) return 1;
+  return 5;
+}
+/* 往下取整（停損用：保守，留更多空間） */
+function tickFloor(price) {
+  const t = tickSize(price);
+  return +( Math.floor(Math.round(price / t * 1e9) / 1e9) * t ).toFixed(
+    t < 0.1 ? 2 : t < 1 ? 1 : 0
+  );
+}
+/* 往上取整（停利用：保守，容易成交） */
+function tickCeil(price) {
+  const t = tickSize(price);
+  return +( Math.ceil(Math.round(price / t * 1e9) / 1e9) * t ).toFixed(
+    t < 0.1 ? 2 : t < 1 ? 1 : 0
+  );
+}
+/* 顯示格式：依檔位決定小數位數 */
+function fmtTick(price) {
+  const t = tickSize(price);
+  if (t < 0.1) return Number(price).toFixed(2);
+  if (t < 1)   return Number(price).toFixed(1);
+  return Number(price).toFixed(0);
+}
+
 /* 時鐘 */
 function tickClock() {
   document.getElementById("clock").textContent =
@@ -579,33 +613,37 @@ function calcPL(cardId, val) {
   const resEl = document.getElementById("pl-res-" + cardId);
   if (!resEl) return;
   if (!price || price <= 0) { resEl.innerHTML = ""; return; }
-  const sl   = +(price * 0.985).toFixed(2);
-  const risk = price - sl;
-  const tp1  = +(price + risk * 1.5).toFixed(2);
-  const tp2  = +(price + risk * 2.5).toFixed(2);
-  const slPct  = fmt2(-1.5);
-  const tp1Pct = fmt2(risk * 1.5 / price * 100);
-  const tp2Pct = fmt2(risk * 2.5 / price * 100);
+  /* 先算原始值，再套台股檔位四捨五入 */
+  const slRaw  = price * 0.985;
+  const sl     = tickFloor(slRaw);          /* 停損：往下取整（保守） */
+  const risk   = price - sl;
+  const tp1    = tickFloor(price + risk * 1.5); /* 停利：往下取整（容易成交） */
+  const tp2    = tickFloor(price + risk * 2.5);
+  const slPct  = fmt2((sl  - price) / price * 100);
+  const tp1Pct = fmt2((tp1 - price) / price * 100);
+  const tp2Pct = fmt2((tp2 - price) / price * 100);
+  const tickNote = `<div style="font-size:10px;color:var(--t2);margin-top:6px;text-align:right">
+    ✓ 已依台股升降單位（Tick ${tickSize(price)}）四捨五入</div>`;
   resEl.innerHTML = `
   <div class="pl-result">
     <div class="pl-row">
       <span class="pl-lbl">停利②</span>
-      <span class="pl-val" style="color:var(--red2)">${fmt2(tp2)}</span>
+      <span class="pl-val" style="color:var(--red2)">${fmtTick(tp2)}</span>
       <span class="pl-pct pct-pos">+${tp2Pct}%</span>
     </div>
     <div class="pl-row">
       <span class="pl-lbl">停利①</span>
-      <span class="pl-val" style="color:var(--red)">${fmt2(tp1)}</span>
+      <span class="pl-val" style="color:var(--red)">${fmtTick(tp1)}</span>
       <span class="pl-pct pct-pos">+${tp1Pct}%</span>
     </div>
     <div class="pl-row">
       <span class="pl-lbl">進場</span>
-      <span class="pl-val" style="color:var(--blue)">${fmt2(price)}</span>
+      <span class="pl-val" style="color:var(--blue)">${fmtTick(price)}</span>
       <span class="pl-pct pct-neu">—</span>
     </div>
     <div class="pl-row">
       <span class="pl-lbl">停損</span>
-      <span class="pl-val" style="color:var(--green)">${fmt2(sl)}</span>
+      <span class="pl-val" style="color:var(--green)">${fmtTick(sl)}</span>
       <span class="pl-pct pct-neg">${slPct}%</span>
     </div>
   </div>`;
