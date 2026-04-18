@@ -646,7 +646,8 @@ function calcPL(cardId, val) {
       <span class="pl-val" style="color:var(--green)">${fmtTick(sl)}</span>
       <span class="pl-pct pct-neg">${slPct}%</span>
     </div>
-  </div>`;
+  </div>
+  ${tickNote}`;
 }
 
 function buildPLCalc(s, cardId) {
@@ -796,7 +797,7 @@ function buildCardHeader(s, rank) {
    盤前卡片
 ══════════════════════════ */
 function buildPreCard(s, rank) {
-  const cardId = "pre-" + rank;
+  const cardId = s.code;
   const oc = s.open_conditions || {};
   return `
 <div class="card ${s.strength}">
@@ -825,7 +826,7 @@ function buildPreCard(s, rank) {
    盤中卡片
 ══════════════════════════ */
 function buildIntradayCard(s, rank) {
-  const cardId = "intra-" + rank;
+  const cardId = s.code;
   let rtHtml = "";
   if (s.realtime) {
     const rt = s.realtime;
@@ -884,7 +885,7 @@ function buildIntradayCard(s, rank) {
    盤後卡片
 ══════════════════════════ */
 function buildPostCard(s, rank) {
-  const cardId = "post-" + rank;
+  const cardId = s.code;
   const perf   = s.performance || {};
   const result = perf.result  || "none";
   const label  = perf.label   || "—";
@@ -1028,6 +1029,41 @@ function clearLog() {
   renderLog();
 }
 
+/* ─────────────────────────────────────
+   v2.2 UX: P&L 計算機狀態保留
+   在畫面重繪前儲存哪些卡片是展開的＋輸入值，
+   重繪後以股票代號比對並還原。
+───────────────────────────────────── */
+function savePLState() {
+  const state = {};
+  document.querySelectorAll('[id^="pl-"]').forEach(el => {
+    /* 只抓 wrapper div（不抓 input / res） */
+    if (el.tagName !== "DIV") return;
+    const cardId = el.id.replace(/^pl-/, "");
+    if (!cardId || cardId.includes("-")) return; /* 跳過舊格式 */
+    const input = document.getElementById("pl-input-" + cardId);
+    if (el.style.display !== "none") {
+      state[cardId] = { open: true, value: input ? input.value : "" };
+    }
+  });
+  return state;
+}
+
+function restorePLState(state) {
+  Object.entries(state).forEach(([cardId, s]) => {
+    if (!s.open) return;
+    const el    = document.getElementById("pl-" + cardId);
+    const input = document.getElementById("pl-input-" + cardId);
+    if (el) {
+      el.style.display = "block";
+      if (input && s.value) {
+        input.value = s.value;
+        calcPL(cardId, s.value);
+      }
+    }
+  });
+}
+
 /* ══════════════════════════
    主資料載入
 ══════════════════════════ */
@@ -1038,10 +1074,27 @@ async function loadData() {
   document.getElementById("pulseLabel").textContent = "更新中";
 
   const apiUrl = API[currentTab] || API.intraday;
+  /* 重繪前保留計算機狀態 */
+  const plState = savePLState();
 
   try {
-    const res  = await fetch(apiUrl);
-    const data = await res.json();
+    const res = await fetch(apiUrl);
+    /* Render 免費版休眠時可能回傳 502 HTML，先檢查 */
+    if (!res.ok) {
+      const txt = await res.text().catch(() => "");
+      const isHtml = txt.trim().startsWith("<");
+      throw new Error(
+        res.status === 503 || res.status === 502
+          ? `伺服器休眠中（${res.status}），請稍候 30 秒後重試`
+          : `伺服器回應異常（HTTP ${res.status}）`
+      );
+    }
+    let data;
+    try {
+      data = await res.json();
+    } catch (e) {
+      throw new Error("伺服器回傳格式異常，可能正在重新啟動，請稍候重試");
+    }
     currentData = data;
 
     updateStatusPill(data.status, data.status_label);
@@ -1118,6 +1171,9 @@ async function loadData() {
       grid.innerHTML = data.recommendations.map((s, i) => buildIntradayCard(s, i+1)).join("");
       tmr.innerHTML  = "";
     }
+
+    /* v2.2: 重繪後還原計算機狀態（輸入值＋展開狀態） */
+    restorePLState(plState);
 
     /* v2.2: 自動儲存到本機記錄 */
     saveToLog(data);
