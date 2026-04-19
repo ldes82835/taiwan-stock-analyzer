@@ -208,10 +208,10 @@
     .perf-badge.sl{background:#fde8e8;border:1px solid #fca5a5;color:#7f1d1d}
     .perf-badge.none{background:var(--bg1);border:1px solid var(--border);color:var(--t1)}
     .perf-note{font-size:11px;color:var(--t1);margin-top:4px;line-height:1.6;padding:0 2px;margin-bottom:10px}
-    .pl-toggle{margin-top:10px;width:100%;padding:10px;border-radius:9px;border:1.5px solid rgba(37,99,184,.45);background:rgba(37,99,184,.07);color:var(--blue);font-size:13px;font-weight:800;cursor:pointer;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:6px}
+    .pl-toggle{margin-top:10px;margin-bottom:14px;width:100%;padding:10px;border-radius:9px;border:1.5px solid rgba(37,99,184,.45);background:rgba(37,99,184,.07);color:var(--blue);font-size:13px;font-weight:800;cursor:pointer;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:6px}
     .pl-toggle:hover{border-color:var(--blue);background:rgba(37,99,184,.14)}
-    .pl-toggle.open{background:rgba(37,99,184,.13);border-color:var(--blue)}
-    .pl-calc{background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-top:10px;display:none}
+    .pl-toggle.open{background:rgba(37,99,184,.13);border-color:var(--blue);margin-bottom:0}
+    .pl-calc{background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-top:10px;margin-bottom:14px;display:none}
     .pl-calc-title{font-size:11px;font-weight:800;color:var(--t1);margin-bottom:10px;letter-spacing:.3px}
     .pl-input-row{display:flex;align-items:center;gap:8px;margin-bottom:10px}
     .pl-input-row label{font-size:12px;color:var(--t1);flex:0 0 52px;font-weight:600}
@@ -230,7 +230,7 @@
     .tmr-name{font-size:16px;font-weight:800;color:var(--t0);margin:3px 0 8px}
     .tmr-row{display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px}
     .tmr-lbl{color:var(--t2)} .tmr-val{font-weight:700;font-family:monospace}
-    .rank{position:absolute;top:15px;right:15px;width:28px;height:28px;border-radius:50%;background:rgba(37,99,184,.1);border:1px solid rgba(37,99,184,.3);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:var(--blue)}
+    .rank{width:28px;height:28px;border-radius:50%;background:rgba(37,99,184,.1);border:1px solid rgba(37,99,184,.3);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:var(--blue);flex-shrink:0;margin-bottom:3px}
     .state-box{grid-column:1/-1;text-align:center;background:var(--bg2);border:1px solid var(--border);border-radius:13px;padding:50px 24px;box-shadow:var(--shadow)}
     .state-box.err{border-color:rgba(201,48,48,.3);background:#fff8f8}
     .state-box h3{font-size:18px;margin-bottom:10px;color:var(--t0)}
@@ -308,7 +308,7 @@
   <div class="hd-logo">
     <div class="hd-icon">📈</div>
     <div>
-      <div class="hd-title">台股當沖分析系統</div>
+      <div class="hd-title">台股當沖分析</div>
       <div class="hd-sub">Taiwan Stock Day-Trading Analyzer</div>
     </div>
   </div>
@@ -636,14 +636,13 @@ function buildCardHeader(s,rank) {
     const gc=s.gap_pct>0?"gap-up":"gap-down", gs=s.gap_pct>0?"+":"";
     gapBadge=`<span class="gap-ind ${gc}">${gs}${fmt2(s.gap_pct)}%</span>`;
   }
-  return `<div class="rank">#${rank}</div>
-  <div class="card-hd">
+  return `<div class="card-hd">
     <div>
       <div class="card-code">${s.code} ${sectorBadge}<button class="btn-code-copy" onclick="copyCode('${s.code}',this)" title="複製代號">複製</button></div>
       <div class="card-name">${s.name}</div>
       <div style="margin-top:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span style="font-size:11px;color:var(--t2)">開盤強度</span>${gapBadge||'<span style="font-size:11px;color:var(--t2)">—</span>'}</div>
     </div>
-    <div class="badges"><span class="badge badge-${s.strength}">${sLbl}</span>${dirBadge}</div>
+    <div class="badges"><div class="rank">#${rank}</div><span class="badge badge-${s.strength}">${sLbl}</span>${dirBadge}</div>
   </div>
   <div class="price-row"><span class="price-main">${fmt2(s.close)}</span><span class="price-chg ${priceClass}">${fmtP(s.change_pct)}</span></div>`;
 }
@@ -820,7 +819,7 @@ async function loadData() {
       document.getElementById("cntAll").textContent=data.market_stats.total??"—";
       document.getElementById("filterBadge").textContent=`從 ${data.market_stats.total??"?"} 檔篩出 ${data.market_stats.filtered??"?"} 檔候選`;
     }
-    const titles={pre:"📊 盤前推薦標的 Top 5（含開盤確認條件）",intraday:"⚡ 盤中推薦標的 Top 5（含委託建議）",post:"📋 今日推薦成效回顧 Top 5"};
+    const titles={pre:"📊 盤前推薦標的 Top 5",intraday:"⚡ 盤中推薦標的 Top 5",post:"📋 今日推薦成效回顧 Top 5"};
     document.getElementById("secTitle").textContent=titles[currentTab]||titles.intraday;
     const grid=document.getElementById("grid"), tmr=document.getElementById("tomorrowSection");
     if(data.error){grid.innerHTML=`<div class="state-box err"><h3>⚠️ ${data.error}</h3><p>請確認網路連線，或等待交易時段後重試。</p></div>`;tmr.innerHTML="";return;}
