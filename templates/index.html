@@ -314,7 +314,7 @@
   <div id="tomorrowSection"></div>
   <div class="log-section" id="logSection">
     <div class="log-hd">
-      <div class="log-hd-title">📓 每日歷史記錄 <span style="font-size:11px;color:var(--t2);font-weight:400">（本機儲存，供回測參考）</span></div>
+      <div class="log-hd-title">📓 最近 3 個交易日記錄 <span style="font-size:11px;color:var(--t2);font-weight:400">（本機儲存，自動跳過週末與假日）</span></div>
       <div class="log-actions"><button class="btn-log" onclick="clearLog()">🗑 清除全部</button></div>
     </div>
     <div id="logContent"><p style="color:var(--t2);font-size:12px;padding:10px 0">尚無紀錄。每次成功載入數據後自動儲存。</p></div>
@@ -352,6 +352,46 @@ const SECTOR_COLORS = {
 };
 let currentTab = "intraday", userSetTab = false, refreshTimer = null, currentData = null;
 let countdownTimer = null, nextRefreshAt = null;
+
+/* ── 台股交易日判斷 ── */
+const TW_HOLIDAYS = new Set([
+  // 2025
+  "2025-01-01",
+  "2025-01-27","2025-01-28","2025-01-29","2025-01-30","2025-01-31","2025-02-03","2025-02-04",
+  "2025-02-28",
+  "2025-04-03","2025-04-04",
+  "2025-05-01",
+  "2025-05-30","2025-05-31","2025-06-02",
+  "2025-10-06","2025-10-07",
+  "2025-10-10",
+  // 2026
+  "2026-01-01","2026-01-02",
+  "2026-02-16","2026-02-17","2026-02-18","2026-02-19","2026-02-20","2026-02-23",
+  "2026-02-28",
+  "2026-04-03","2026-04-04","2026-04-05","2026-04-06",
+  "2026-05-01",
+  "2026-06-19","2026-06-20",
+  "2026-09-25","2026-09-26",
+  "2026-10-09","2026-10-10",
+]);
+const DOW_CH = ["日","一","二","三","四","五","六"];
+function isTradingDay(dateStr) {
+  const d = new Date(dateStr+"T00:00:00"), w = d.getDay();
+  return w !== 0 && w !== 6 && !TW_HOLIDAYS.has(dateStr);
+}
+function getLastNTradingDays(n) {
+  const days = [], d = new Date(); let limit = 120;
+  while(days.length < n && limit-- > 0) {
+    const s = d.toISOString().slice(0,10);
+    if(isTradingDay(s)) days.push(s);
+    d.setDate(d.getDate() - 1);
+  }
+  return days; // 最近的排前面
+}
+function fmtTradingDate(dateStr) {
+  const d = new Date(dateStr+"T00:00:00");
+  return `${dateStr}（週${DOW_CH[d.getDay()]}）`;
+}
 
 function startCountdown(ms) {
   nextRefreshAt = Date.now() + ms;
@@ -583,7 +623,10 @@ function restorePLState(state) {
 /* LocalStorage log */
 function saveToLog(data) {
   if(!data.recommendations?.length) return;
-  const today=new Date().toISOString().slice(0,10), key="dt_log_"+today;
+  // 若今天非交易日（週末/假日），儲存在最近一個交易日的 key，避免非開盤日覆蓋
+  const logDate = getLastNTradingDays(1)[0];
+  if(!logDate) return;
+  const key = "dt_log_" + logDate;
   const entry={time:data.timestamp||new Date().toLocaleString("zh-TW"),tab:currentTab,stocks:data.recommendations.map(s=>({code:s.code,name:s.name,close:s.close,change_pct:s.change_pct,sector:s.sector||"",gap_pct:s.gap_pct??null,vwap_est:s.vwap_est??null,above_vwap:s.above_vwap??null,score:s.score_breakdown?.total??0}))};
   const allKeys=Object.keys(localStorage).filter(k=>k.startsWith("dt_log_")).sort();
   if(allKeys.length>=30&&!allKeys.includes(key)) localStorage.removeItem(allKeys[0]);
@@ -592,17 +635,25 @@ function saveToLog(data) {
 }
 function renderLog() {
   const logEl=document.getElementById("logContent"); if(!logEl) return;
-  const keys=Object.keys(localStorage).filter(k=>k.startsWith("dt_log_")).sort().reverse();
-  if(!keys.length){logEl.innerHTML=`<p style="color:var(--t2);font-size:12px;padding:10px 0">尚無紀錄。每次成功載入數據後自動儲存。</p>`;return;}
+  const tradingDays=getLastNTradingDays(3);
   const TAB_LBL={pre:"盤前",intraday:"盤中",post:"盤後"};
-  logEl.innerHTML=keys.map(key=>{
-    const date=key.replace("dt_log_","");
-    let entry; try{entry=JSON.parse(localStorage.getItem(key)||"{}");}catch(e){entry={};}
+  logEl.innerHTML=tradingDays.map(date=>{
+    const key="dt_log_"+date;
+    let entry; try{entry=JSON.parse(localStorage.getItem(key)||"null");}catch(e){entry=null;}
+    const label=fmtTradingDate(date);
+    if(!entry){
+      return `<div class="log-day">
+        <div class="log-day-hd" style="cursor:default">
+          <span class="log-date">${label}</span>
+          <span style="font-size:11px;color:var(--t2);margin-left:10px">尚無本機紀錄（請在盤中或盤後載入一次數據）</span>
+        </div>
+      </div>`;
+    }
     const stocks=entry.stocks||[];
     const tabBadge=entry.tab?`<span class="log-tab-badge log-tab-${entry.tab}">${TAB_LBL[entry.tab]||entry.tab}</span>`:"";
     return `<div class="log-day">
       <div class="log-day-hd" onclick="toggleLogDay('${key}')">
-        <span class="log-date">${date}</span>${tabBadge}
+        <span class="log-date">${label}</span>${tabBadge}
         <span class="log-time">${entry.time||"—"}</span>
         <span class="log-chevron" id="chev-${key}">▼</span>
       </div>
@@ -613,7 +664,7 @@ function renderLog() {
         return `<div class="log-stock"><span class="log-rank">#${i+1}</span><span class="log-code">${s.code}</span><span class="log-name">${s.name}</span>${sTag}<span class="log-close ${s.change_pct>=0?"up":"down"}">${fmt2(s.close)} (${s.change_pct>=0?"+":""}${fmt2(s.change_pct)}%)</span>${gapTxt}</div>`;
       }).join("")}</div>
     </div>`;
-  }).join("");
+  }).join("")||`<p style="color:var(--t2);font-size:12px;padding:10px 0">尚無紀錄。每次成功載入數據後自動儲存。</p>`;
 }
 function toggleLogDay(key) {
   const body=document.getElementById("body-"+key), chev=document.getElementById("chev-"+key);
