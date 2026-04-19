@@ -76,6 +76,9 @@
     .btn-copy:hover{background:rgba(37,99,184,.07);border-color:var(--blue)}
     .copy-feedback{font-size:11px;color:var(--green2);font-weight:700;opacity:0;transition:opacity .3s}
     .copy-feedback.show{opacity:1}
+    .btn-code-copy{background:none;border:1px solid var(--border);border-radius:5px;padding:2px 9px;cursor:pointer;font-size:11px;color:var(--t2);transition:all .2s;vertical-align:middle;line-height:1.4;font-weight:700}
+    .btn-code-copy:hover{color:var(--blue);border-color:var(--blue);background:rgba(37,99,184,.07)}
+    .btn-code-copy.copied{color:var(--green2);border-color:var(--green2);background:rgba(40,181,96,.06)}
     .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(390px,1fr));gap:18px}
     .card{position:relative;overflow:hidden;background:var(--bg2);border:1px solid var(--border);border-radius:15px;padding:20px;transition:box-shadow .2s,border-color .2s;box-shadow:var(--shadow)}
     .card::before{content:'';position:absolute;top:0;left:0;right:0;height:4px}
@@ -305,10 +308,6 @@
     <div class="sec-title" id="secTitle">🎯 當沖推薦標的 Top 5</div>
     <div class="sec-badge" id="filterBadge">篩選中…</div>
   </div>
-  <div class="copy-bar">
-    <button class="btn-copy" id="btnCopy" onclick="copyAllCodes()">📋 複製所有代號</button>
-    <span class="copy-feedback" id="copyFeedback">✓ 已複製！</span>
-  </div>
   <div class="grid" id="grid">
     <div class="state-box"><div class="spinner"></div><p>正在連接 TWSE 並分析市場數據…</p></div>
   </div>
@@ -387,6 +386,14 @@ function setTab(tab) {
   loadData();
 }
 function updateStatusPill(type,label) { const p=document.getElementById("statusPill"); p.className="status-pill "+type; p.textContent=label; }
+function getLocalSession() {
+  const t=new Date().getHours()*60+new Date().getMinutes();
+  if(t<8*60)       return {type:"pre",label:"盤前（休市）"};
+  if(t<9*60)       return {type:"pre",label:"盤前（準備中）"};
+  if(t<13*60+30)   return {type:"intraday",label:"盤中（09:00–13:30）"};
+  return           {type:"post",label:"盤後（收盤）"};
+}
+function refreshStatusPill() { const s=getLocalSession(); updateStatusPill(s.type,s.label); }
 function updateSubSessBanner(ss) {
   const bar=document.getElementById("subSessBar");
   if(!ss){bar.style.display="none";return;}
@@ -396,12 +403,11 @@ function updateSubSessBanner(ss) {
   bar.style.display="flex";
 }
 
-async function copyAllCodes() {
-  if(!currentData?.recommendations?.length) return;
-  const codes=currentData.recommendations.map(s=>s.code).join(", ");
-  try { await navigator.clipboard.writeText(codes); }
-  catch(e) { const ta=document.createElement("textarea"); ta.value=codes; ta.style.cssText="position:fixed;opacity:0"; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta); }
-  const fb=document.getElementById("copyFeedback"); fb.classList.add("show"); setTimeout(()=>fb.classList.remove("show"),2000);
+async function copyCode(code,btn) {
+  try{await navigator.clipboard.writeText(code);}
+  catch(e){const ta=document.createElement("textarea");ta.value=code;ta.style.cssText="position:fixed;opacity:0";document.body.appendChild(ta);ta.select();document.execCommand("copy");document.body.removeChild(ta);}
+  const orig=btn.textContent; btn.textContent="✓ 已複製"; btn.classList.add("copied");
+  setTimeout(()=>{btn.textContent=orig;btn.classList.remove("copied");},1500);
 }
 
 function togglePL(id) { const el=document.getElementById("pl-"+id); if(el) el.style.display=el.style.display!=="none"?"none":"block"; }
@@ -490,7 +496,7 @@ function buildCardHeader(s,rank) {
   return `<div class="rank">#${rank}</div>
   <div class="card-hd">
     <div>
-      <div class="card-code">${s.code} ${sectorBadge}</div>
+      <div class="card-code">${s.code} ${sectorBadge}<button class="btn-code-copy" onclick="copyCode('${s.code}',this)" title="複製代號">複製</button></div>
       <div class="card-name">${s.name}</div>
       <div style="margin-top:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span style="font-size:11px;color:var(--t2)">開盤強度</span>${gapBadge||'<span style="font-size:11px;color:var(--t2)">—</span>'}</div>
     </div>
@@ -508,8 +514,8 @@ function buildPreCard(s,rank) {
     <div class="open-cond-row"><span class="open-cond-label">進場建議</span><span class="open-cond-val">${oc.entry_tip||"—"}</span></div>
     <div class="open-tip">💡 ${oc.strategy||"—"}</div>
   </div>
-  ${buildVwap(s)}${buildLevels(s)}${buildStats(s)}${buildScoreBreakdown(s)}
-  <div class="reason">📌 ${s.reason}</div>${buildPLCalc(s)}</div>`;
+  ${buildVwap(s)}${buildLevels(s)}${buildPLCalc(s)}${buildStats(s)}${buildScoreBreakdown(s)}
+  <div class="reason">📌 ${s.reason}</div></div>`;
 }
 function buildIntradayCard(s,rank) {
   let rtHtml="";
@@ -529,15 +535,15 @@ function buildIntradayCard(s,rank) {
   }
   let otHtml="";
   if(s.order_tip){const ot=s.order_tip;otHtml=`<div class="order-tip ot-${ot.color}"><span class="ot-badge">${ot.type}</span><span><strong>${ot.label}：</strong>${ot.tip}</span></div>`;}
-  return `<div class="card ${s.strength}">${buildCardHeader(s,rank)}${rtHtml}${otHtml}${buildVwap(s)}${buildLevels(s)}${buildStats(s)}${buildScoreBreakdown(s)}<div class="reason">💡 ${s.reason}</div>${buildPLCalc(s)}</div>`;
+  return `<div class="card ${s.strength}">${buildCardHeader(s,rank)}${rtHtml}${otHtml}${buildVwap(s)}${buildLevels(s)}${buildPLCalc(s)}${buildStats(s)}${buildScoreBreakdown(s)}<div class="reason">💡 ${s.reason}</div></div>`;
 }
 function buildPostCard(s,rank) {
   const perf=s.performance||{}, result=perf.result||"none";
   return `<div class="card ${s.strength}">${buildCardHeader(s,rank)}
   <div class="perf-badge ${result}">${perf.label||"—"}</div>
   <div class="perf-note">${perf.note||""}</div>
-  ${buildVwap(s)}${buildLevels(s)}${buildStats(s)}${buildScoreBreakdown(s)}
-  <div class="reason">📋 ${s.reason}</div>${buildPLCalc(s)}</div>`;
+  ${buildVwap(s)}${buildLevels(s)}${buildPLCalc(s)}${buildStats(s)}${buildScoreBreakdown(s)}
+  <div class="reason">📋 ${s.reason}</div></div>`;
 }
 function buildTomorrow(list) {
   if(!list||!list.length) return "";
@@ -632,9 +638,9 @@ async function loadData() {
     if(!res.ok) throw new Error(res.status===502||res.status===503?`伺服器休眠中（${res.status}），請稍候 30 秒後重試`:`伺服器回應異常（HTTP ${res.status}）`);
     let data; try{data=await res.json();}catch(e){throw new Error("伺服器回傳格式異常，可能正在重新啟動，請稍候重試");}
     currentData=data;
-    updateStatusPill(data.status,data.status_label);
+    refreshStatusPill();
     if(data.sub_session) updateSubSessBanner(data.sub_session);
-    if(!userSetTab){currentTab=data.status;document.querySelectorAll(".tab").forEach(el=>el.classList.remove("active"));document.getElementById("tab-"+currentTab).classList.add("active");}
+    if(!userSetTab){const lt=getLocalSession().type;currentTab=lt;document.querySelectorAll(".tab").forEach(el=>el.classList.remove("active"));document.getElementById("tab-"+lt).classList.add("active");}
     document.getElementById("descEl").textContent=TABS_DESC[currentTab]??TABS_DESC.post;
     document.getElementById("dataTime").textContent=data.timestamp??"—";
     if(data.market_index){
@@ -684,11 +690,12 @@ function scheduleRefresh() {
   refreshTimer=setInterval(()=>{loadData();scheduleRefresh();},interval);
 }
 (function init(){
-  const t=new Date().getHours()*60+new Date().getMinutes();
-  const initTab=t<9*60?"pre":t<13*60+30?"intraday":"post";
+  const initTab=getLocalSession().type;
   currentTab=initTab;
   document.getElementById("tab-"+initTab).classList.add("active");
   document.getElementById("descEl").textContent=TABS_DESC[initTab];
+  refreshStatusPill();
+  setInterval(refreshStatusPill, 60000);
   renderLog(); loadData(); scheduleRefresh();
 })();
 </script>
