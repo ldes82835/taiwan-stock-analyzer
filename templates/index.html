@@ -52,10 +52,21 @@
     .mkt-otc h2{font-size:11px;color:var(--t2);letter-spacing:.5px;margin-bottom:4px}
     .mkt-otc .mkt-price{font-size:20px}
     .mkt-otc .mkt-change{font-size:12px}
-    .tabs{display:flex;gap:8px;margin-bottom:10px}
-    .tab{padding:7px 18px;border-radius:8px;font-size:13px;font-weight:600;border:1px solid var(--border);background:var(--bg2);color:var(--t1);cursor:pointer;transition:all .2s;box-shadow:0 1px 3px rgba(80,50,20,.06)}
-    .tab:hover{color:var(--t0);border-color:var(--t1);background:var(--bg3)}
-    .tab.active{color:var(--blue);border-color:var(--blue);background:rgba(37,99,184,.07);box-shadow:none}
+    /* ── 交易時段軌道 ── */
+    .session-track{display:flex;align-items:center;background:var(--bg2);border:1px solid var(--border);border-radius:13px;padding:10px 16px;margin-bottom:10px;box-shadow:var(--shadow);gap:0}
+    .sess-node{display:flex;flex-direction:column;align-items:center;gap:2px;padding:7px 14px;border-radius:9px;transition:all .3s;opacity:.35;flex-shrink:0;cursor:default}
+    .sess-node.active{opacity:1;background:rgba(37,99,184,.08);border:1px solid rgba(37,99,184,.22);box-shadow:0 1px 6px rgba(37,99,184,.1)}
+    .sess-node.active.intraday-active{background:rgba(201,48,48,.07);border-color:rgba(201,48,48,.25);box-shadow:0 1px 6px rgba(201,48,48,.1)}
+    .sess-node.active.post-active{background:var(--bg1);border-color:var(--border)}
+    .sess-icon{font-size:18px;line-height:1}
+    .sess-nm{font-size:12px;font-weight:700;color:var(--t0);white-space:nowrap}
+    .sess-t{font-size:10px;color:var(--t2);white-space:nowrap}
+    .sess-line{flex:1;height:2px;background:var(--border);min-width:12px;position:relative;margin:0 4px}
+    .sess-line::after{content:"›";position:absolute;top:-8px;left:50%;transform:translateX(-50%);font-size:13px;color:var(--t2)}
+    .sess-cd{margin-left:auto;padding:5px 12px;border-radius:8px;font-size:12px;font-weight:800;color:var(--blue);font-family:monospace;background:rgba(37,99,184,.07);border:1px solid rgba(37,99,184,.2);white-space:nowrap;flex-shrink:0}
+    .sess-cd.urgent{color:var(--red);background:rgba(201,48,48,.08);border-color:rgba(201,48,48,.3)}
+    .sess-cd.closed{color:var(--t2);background:var(--bg1);border-color:var(--border)}
+    @media(max-width:700px){.sess-t{display:none}.sess-node{padding:6px 10px}.sess-cd{font-size:11px;padding:4px 9px}}
     .sub-sess-bar{padding:9px 14px;border-radius:9px;font-size:12px;margin-bottom:10px;border:1px solid;display:flex;align-items:flex-start;gap:8px;line-height:1.6}
     .sub-sess-bar strong{white-space:nowrap;margin-right:4px}
     .sub-sess-bar.early{background:#fffbeb;border-color:#fde68a;color:#92400e}
@@ -289,10 +300,25 @@
     <div class="sep"></div>
     <div class="mkt-time"><small>資料更新時間</small><p id="dataTime">—</p></div>
   </div>
-  <div class="tabs">
-    <button class="tab" id="tab-pre"      onclick="setTab('pre')">📊 盤前分析</button>
-    <button class="tab" id="tab-intraday" onclick="setTab('intraday')">⚡ 盤中即時</button>
-    <button class="tab" id="tab-post"     onclick="setTab('post')">📋 盤後總結</button>
+  <div class="session-track">
+    <div class="sess-node" id="tab-pre">
+      <span class="sess-icon">📊</span>
+      <span class="sess-nm">盤前分析</span>
+      <span class="sess-t">~09:00</span>
+    </div>
+    <div class="sess-line"></div>
+    <div class="sess-node" id="tab-intraday">
+      <span class="sess-icon">⚡</span>
+      <span class="sess-nm">盤中即時</span>
+      <span class="sess-t">09:00–13:30</span>
+    </div>
+    <div class="sess-line"></div>
+    <div class="sess-node" id="tab-post">
+      <span class="sess-icon">📋</span>
+      <span class="sess-nm">盤後總結</span>
+      <span class="sess-t">13:30~</span>
+    </div>
+    <div class="sess-cd" id="sessCountdown">—</div>
   </div>
   <div class="sub-sess-bar pre_open" id="subSessBar" style="display:none"></div>
   <div class="desc" id="descEl">載入中…</div>
@@ -350,7 +376,8 @@ const SECTOR_COLORS = {
   "生技":"#16a34a","石化":"#b45309","食品":"#be185d","紡織":"#9333ea",
   "建設":"#ca8a04","玻璃":"#0891b2","橡膠":"#7c2d12","電子其他":"#9ca3af",
 };
-let currentTab = "intraday", userSetTab = false, refreshTimer = null, currentData = null;
+let currentTab = "intraday", refreshTimer = null, currentData = null;
+let prevSessionType = null;
 let countdownTimer = null, nextRefreshAt = null;
 
 /* ── 台股交易日判斷 ── */
@@ -418,13 +445,6 @@ function fmtTick(p)  { const t=tickSize(p); return Number(p).toFixed(t<.1?2:t<1?
 function tickClock() { document.getElementById("clock").textContent = new Date().toLocaleTimeString("zh-TW",{hour12:false}); }
 tickClock(); setInterval(tickClock, 1000);
 
-function setTab(tab) {
-  userSetTab=true; currentTab=tab;
-  document.querySelectorAll(".tab").forEach(el=>el.classList.remove("active"));
-  document.getElementById("tab-"+tab).classList.add("active");
-  document.getElementById("descEl").textContent=TABS_DESC[tab];
-  loadData();
-}
 function updateStatusPill(type,label) { const p=document.getElementById("statusPill"); p.className="status-pill "+type; p.textContent=label; }
 function getLocalSession() {
   const t=new Date().getHours()*60+new Date().getMinutes();
@@ -433,7 +453,42 @@ function getLocalSession() {
   if(t<13*60+30)   return {type:"intraday",label:"盤中（09:00–13:30）"};
   return           {type:"post",label:"盤後（收盤）"};
 }
-function refreshStatusPill() { const s=getLocalSession(); updateStatusPill(s.type,s.label); }
+function refreshStatusPill() {
+  const s=getLocalSession();
+  updateStatusPill(s.type,s.label);
+  // 更新軌道節點 active 狀態
+  ["pre","intraday","post"].forEach(t=>{
+    const n=document.getElementById("tab-"+t);
+    if(!n) return;
+    n.classList.remove("active","intraday-active","post-active");
+    if(t===s.type){
+      n.classList.add("active");
+      if(t==="intraday") n.classList.add("intraday-active");
+      if(t==="post")     n.classList.add("post-active");
+    }
+  });
+  // 偵測時段切換 → 自動重新載入
+  if(prevSessionType && prevSessionType!==s.type){
+    currentTab=s.type;
+    document.getElementById("descEl").textContent=TABS_DESC[s.type];
+    loadData();
+  }
+  prevSessionType=s.type;
+}
+/* 時段倒數計時 */
+function updateSessCountdown() {
+  const el=document.getElementById("sessCountdown"); if(!el) return;
+  const now=new Date(), s=now.getHours()*3600+now.getMinutes()*60+now.getSeconds();
+  const pad=n=>String(n).padStart(2,"0");
+  const hms=r=>`${pad(Math.floor(r/3600))}:${pad(Math.floor(r%3600/60))}:${pad(r%60)}`;
+  const ms=r=>`${pad(Math.floor(r/60))}:${pad(r%60)}`;
+  const preAt=8*3600+30*60, openAt=9*3600, closeAt=13*3600+30*60;
+  el.classList.remove("urgent","closed");
+  if(s<preAt)        { el.textContent="距盤前 "+hms(preAt-s); }
+  else if(s<openAt)  { const r=openAt-s; el.textContent="距開盤 "+ms(r); if(r<600) el.classList.add("urgent"); }
+  else if(s<closeAt) { const r=closeAt-s; el.textContent="距收盤 "+hms(r); if(r<600) el.classList.add("urgent"); }
+  else               { el.textContent="今日收盤"; el.classList.add("closed"); }
+}
 function updateSubSessBanner(ss) {
   const bar=document.getElementById("subSessBar");
   if(!ss){bar.style.display="none";return;}
@@ -691,7 +746,6 @@ async function loadData() {
     currentData=data;
     refreshStatusPill();
     if(data.sub_session) updateSubSessBanner(data.sub_session);
-    if(!userSetTab){const lt=getLocalSession().type;currentTab=lt;document.querySelectorAll(".tab").forEach(el=>el.classList.remove("active"));document.getElementById("tab-"+lt).classList.add("active");}
     document.getElementById("descEl").textContent=TABS_DESC[currentTab]??TABS_DESC.post;
     document.getElementById("dataTime").textContent=data.timestamp??"—";
     if(data.market_index){
@@ -741,12 +795,14 @@ function scheduleRefresh() {
   refreshTimer=setInterval(()=>{loadData();scheduleRefresh();},interval);
 }
 (function init(){
-  const initTab=getLocalSession().type;
-  currentTab=initTab;
-  document.getElementById("tab-"+initTab).classList.add("active");
-  document.getElementById("descEl").textContent=TABS_DESC[initTab];
-  refreshStatusPill();
-  setInterval(refreshStatusPill, 60000);
+  const initSess=getLocalSession();
+  currentTab=initSess.type;
+  prevSessionType=initSess.type;
+  document.getElementById("descEl").textContent=TABS_DESC[initSess.type];
+  refreshStatusPill();          // 初始化軌道 + 狀態 pill
+  setInterval(refreshStatusPill, 60000); // 每分鐘檢查時段切換
+  updateSessCountdown();        // 立即顯示倒數
+  setInterval(updateSessCountdown, 1000);// 每秒更新
   renderLog(); loadData(); scheduleRefresh();
 })();
 </script>
