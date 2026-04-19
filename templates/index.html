@@ -66,7 +66,16 @@
     .sess-cd{margin-left:auto;padding:5px 12px;border-radius:8px;font-size:12px;font-weight:800;color:var(--blue);font-family:monospace;background:rgba(37,99,184,.07);border:1px solid rgba(37,99,184,.2);white-space:nowrap;flex-shrink:0}
     .sess-cd.urgent{color:var(--red);background:rgba(201,48,48,.08);border-color:rgba(201,48,48,.3)}
     .sess-cd.closed{color:var(--t2);background:var(--bg1);border-color:var(--border)}
-    @media(max-width:700px){.sess-t{display:none}.sess-node{padding:6px 10px}.sess-cd{font-size:11px;padding:4px 9px}}
+    @media(max-width:700px){
+      .sess-t{display:none}
+      .sess-node{padding:5px 8px}
+      .sess-node:not(.active){opacity:.28}
+      .sess-node:not(.active) .sess-nm{display:none}
+      .sess-node:not(.active) .sess-icon{font-size:15px}
+      .sess-node.active{padding:6px 12px}
+      .sess-line{min-width:6px}
+      .sess-cd{font-size:12px;padding:5px 10px}
+    }
     .sub-sess-bar{padding:9px 14px;border-radius:9px;font-size:12px;margin-bottom:10px;border:1px solid;display:flex;align-items:flex-start;gap:8px;line-height:1.6}
     .sub-sess-bar strong{white-space:nowrap;margin-right:4px}
     .sub-sess-bar.early{background:#fffbeb;border-color:#fde68a;color:#92400e}
@@ -199,8 +208,9 @@
     .perf-badge.sl{background:#fde8e8;border:1px solid #fca5a5;color:#7f1d1d}
     .perf-badge.none{background:var(--bg1);border:1px solid var(--border);color:var(--t1)}
     .perf-note{font-size:11px;color:var(--t1);margin-top:4px;line-height:1.6;padding:0 2px;margin-bottom:10px}
-    .pl-toggle{margin-top:8px;width:100%;padding:7px;border-radius:8px;border:1px dashed var(--border);background:transparent;color:var(--t2);font-size:12px;font-weight:700;cursor:pointer;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:5px}
-    .pl-toggle:hover{border-color:var(--blue);color:var(--blue);background:rgba(37,99,184,.04)}
+    .pl-toggle{margin-top:10px;width:100%;padding:10px;border-radius:9px;border:1.5px solid rgba(37,99,184,.45);background:rgba(37,99,184,.07);color:var(--blue);font-size:13px;font-weight:800;cursor:pointer;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:6px}
+    .pl-toggle:hover{border-color:var(--blue);background:rgba(37,99,184,.14)}
+    .pl-toggle.open{background:rgba(37,99,184,.13);border-color:var(--blue)}
     .pl-calc{background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-top:10px;display:none}
     .pl-calc-title{font-size:11px;font-weight:800;color:var(--t1);margin-bottom:10px;letter-spacing:.3px}
     .pl-input-row{display:flex;align-items:center;gap:8px;margin-bottom:10px}
@@ -255,9 +265,41 @@
     .log-close{font-family:monospace;font-size:12px;font-weight:700;flex-shrink:0}
     .log-gap{font-family:monospace;font-size:11px;font-weight:700;flex-shrink:0;opacity:.8}
     @media(max-width:700px){
-      .main{padding:14px} .grid{grid-template-columns:1fr}
-      .mkt{gap:14px} .hd{padding:10px 14px} .hd-title{font-size:14px}
-      .hd-right{gap:8px} .countdown{display:none}
+      /* Layout */
+      .main{padding:12px}
+      .grid{grid-template-columns:1fr}
+      /* Header */
+      .hd{padding:8px 12px}
+      .hd-icon{width:30px;height:30px;font-size:16px}
+      .hd-title{font-size:14px}
+      .hd-sub{display:none}
+      .pulse{display:none}
+      .hd-right{gap:6px}
+      .countdown{display:none}
+      .btn-refresh{padding:5px 10px;font-size:12px}
+      /* Market bar */
+      .mkt{padding:12px 14px;gap:10px}
+      .mkt-price{font-size:21px}
+      .mkt-otc .mkt-price{font-size:17px}
+      .bth-val{font-size:17px}
+      /* Cards */
+      .card{padding:14px 13px}
+      .card-name{font-size:22px}
+      .price-main{font-size:28px}
+      .levels{padding:11px 13px}
+      .lv-price{font-size:15px}
+      /* P&L calc touch */
+      .pl-toggle{padding:12px;font-size:14px}
+      .pl-input-row input{font-size:16px;padding:10px 12px;height:46px;border-radius:9px}
+      .pl-val{font-size:15px}
+      .pl-row{padding:7px 10px}
+      /* Copy button touch */
+      .btn-code-copy{padding:4px 12px;font-size:12px}
+      /* Criteria compact */
+      .criteria{padding:10px 14px;gap:8px 18px}
+      .desc{padding:11px 14px;font-size:12px}
+      /* Tomorrow watchlist */
+      .tmr-grid{grid-template-columns:1fr}
     }
   </style>
 </head>
@@ -505,7 +547,13 @@ async function copyCode(code,btn) {
   setTimeout(()=>{btn.textContent=orig;btn.classList.remove("copied");},1500);
 }
 
-function togglePL(id) { const el=document.getElementById("pl-"+id); if(el) el.style.display=el.style.display!=="none"?"none":"block"; }
+function togglePL(id) {
+  const el=document.getElementById("pl-"+id), btn=document.getElementById("pl-btn-"+id);
+  if(!el) return;
+  const open = el.style.display==="block";
+  el.style.display = open ? "none" : "block";
+  if(btn){ btn.innerHTML=open?"💰 自訂進場計算機":"▲ 收起計算機"; btn.classList.toggle("open",!open); }
+}
 function calcPL(id,val) {
   const price=parseFloat(val), resEl=document.getElementById("pl-res-"+id);
   if(!resEl) return;
@@ -522,7 +570,7 @@ function calcPL(id,val) {
 }
 function buildPLCalc(s) {
   const id=s.code;
-  return `<button class="pl-toggle" onclick="togglePL('${id}')">💰 自訂進場計算機</button>
+  return `<button class="pl-toggle" id="pl-btn-${id}" onclick="togglePL('${id}')">💰 自訂進場計算機</button>
   <div class="pl-calc" id="pl-${id}">
     <div class="pl-calc-title">自訂進場計算（停損固定 1.5%，風報比 1:1.5 / 1:2.5）</div>
     <div class="pl-input-row"><label>進場價</label><input type="number" step="0.01" min="1" placeholder="${fmt2(s.close)}" oninput="calcPL('${id}',this.value)" id="pl-input-${id}"></div>
@@ -671,7 +719,12 @@ function restorePLState(state) {
   Object.entries(state).forEach(([id,s])=>{
     if(!s.open) return;
     const el=document.getElementById("pl-"+id), input=document.getElementById("pl-input-"+id);
-    if(el){el.style.display="block"; if(input&&s.value){input.value=s.value;calcPL(id,s.value);}}
+    const btn=document.getElementById("pl-btn-"+id);
+    if(el){
+      el.style.display="block";
+      if(btn){btn.innerHTML="▲ 收起計算機";btn.classList.add("open");}
+      if(input&&s.value){input.value=s.value;calcPL(id,s.value);}
+    }
   });
 }
 
