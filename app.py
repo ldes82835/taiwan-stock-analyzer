@@ -162,6 +162,41 @@ def sub_session():
 # ─────────────────────────────────────────
 
 def get_all_stocks():
+    # 優先用 TWSE Open API（可從海外伺服器存取）
+    url_open = "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL"
+    try:
+        r = requests.get(url_open, headers=HEADERS, timeout=20, verify=False)
+        r.raise_for_status()
+        items = r.json()
+        if items and isinstance(items, list) and len(items) > 100:
+            rows = []
+            date_str = items[0].get("Date", datetime.now().strftime("%Y%m%d")) if items else ""
+            for item in items:
+                chg = str(item.get("Change", "0") or "0").strip()
+                # 確保漲跌有 +/- 前綴，供後續計數使用
+                if chg and chg[0] not in ("+", "-"):
+                    try:
+                        chg = ("+" if float(chg) >= 0 else "") + chg
+                    except Exception:
+                        pass
+                row = [
+                    item.get("Code", ""),
+                    item.get("Name", ""),
+                    str(item.get("TradeVolume", "0")).replace(",", ""),
+                    str(item.get("TradeValue", "0")).replace(",", ""),
+                    item.get("OpeningPrice", "0"),
+                    item.get("HighestPrice", "0"),
+                    item.get("LowestPrice", "0"),
+                    item.get("ClosingPrice", "0"),
+                    chg,
+                ]
+                rows.append(row)
+            print(f"[OPENAPI OK] {len(rows)} 檔，date={date_str}")
+            return rows, date_str
+    except Exception as e:
+        print(f"[OPENAPI ERROR] {e}")
+
+    # 備用：舊版 TWSE 端點（台灣 IP 才能用）
     url = "https://www.twse.com.tw/exchangeReport/STOCK_DAY_ALL?response=json"
     try:
         r = requests.get(url, headers=HEADERS, timeout=15, verify=False)
