@@ -734,7 +734,7 @@ function saveToLog(data) {
   const logDate = getLastNTradingDays(1)[0];
   if(!logDate) return;
   const key = "dt_log_" + logDate;
-  const entry={time:data.timestamp||new Date().toLocaleString("zh-TW"),tab:currentTab,stocks:data.recommendations.map(s=>({code:s.code,name:s.name,close:s.close,change_pct:s.change_pct,sector:s.sector||"",gap_pct:s.gap_pct??null,vwap_est:s.vwap_est??null,above_vwap:s.above_vwap??null,score:s.score_breakdown?.total??0}))};
+  const entry={time:data.timestamp||new Date().toLocaleString("zh-TW"),tab:currentTab,stocks:data.recommendations.map(s=>({code:s.code,name:s.name,close:s.close,change_pct:s.change_pct,sector:s.sector||"",gap_pct:s.gap_pct??null,vwap_est:s.vwap_est??null,above_vwap:s.above_vwap??null,score:s.score_breakdown?.total??0,rt_price:s.realtime?.realtime_price??null,rt_change_pct:s.realtime?.realtime_change_pct??null,perf_label:s.performance?.label??null,perf_profit:s.performance?.profit_pct??null,perf_result:s.performance?.result??null}))};
   const allKeys=Object.keys(localStorage).filter(k=>k.startsWith("dt_log_")).sort();
   if(allKeys.length>=30&&!allKeys.includes(key)) localStorage.removeItem(allKeys[0]);
   try{localStorage.setItem(key,JSON.stringify(entry));}catch(e){}
@@ -768,7 +768,17 @@ function renderLog() {
         const sc=SECTOR_COLORS[s.sector]||"#9ca3af";
         const sTag=s.sector?`<span class="log-sector-tag" style="background:${sc}1a;color:${sc};border-color:${sc}55">${s.sector}</span>`:"";
         const gapTxt=s.gap_pct!==null&&s.gap_pct!==undefined?`<span class="log-gap ${s.gap_pct>=0?"up":"down"}">缺口${s.gap_pct>=0?"+":""}${fmt2(s.gap_pct)}%</span>`:"";
-        return `<div class="log-stock"><span class="log-rank">#${i+1}</span><span class="log-code">${s.code}</span><span class="log-name">${s.name}</span>${sTag}<span class="log-close ${s.change_pct>=0?"up":"down"}">${fmt2(s.close)} (${s.change_pct>=0?"+":""}${fmt2(s.change_pct)}%)</span>${gapTxt}</div>`;
+        let priceHtml;
+        if(s.rt_price!=null){
+          const rc=s.rt_change_pct>=0?"up":"down";
+          priceHtml=`<span class="log-close ${rc}">${fmt2(s.rt_price)} (${s.rt_change_pct>=0?"+":""}${fmt2(s.rt_change_pct)}%) <span style="font-size:10px;opacity:.7">即時</span></span>`;
+        } else if(s.perf_label){
+          const pc=s.perf_result==="tp1"||s.perf_result==="tp2"?"up":s.perf_result==="sl"?"down":"neutral";
+          priceHtml=`<span class="log-close ${pc}">${s.perf_label}${s.perf_profit!=null?" "+fmt2(s.perf_profit)+"%":""}</span>`;
+        } else {
+          priceHtml=`<span class="log-close ${s.change_pct>=0?"up":"down"}">${fmt2(s.close)} <span style="font-size:10px;opacity:.6">昨收</span></span>`;
+        }
+        return `<div class="log-stock"><span class="log-rank">#${i+1}</span><span class="log-code">${s.code}</span><span class="log-name">${s.name}</span>${sTag}${priceHtml}${gapTxt}</div>`;
       }).join("")}</div>
     </div>`;
   }).join("")||`<p style="color:var(--t2);font-size:12px;padding:10px 0">尚無紀錄。每次成功載入數據後自動儲存。</p>`;
