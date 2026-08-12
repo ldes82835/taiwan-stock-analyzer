@@ -618,6 +618,55 @@ def calc_open_conditions(stock):
     }
 
 
+def tomorrow_setup(stock):
+    """Rank next-session watch candidates without pretending today's close is an entry."""
+    chg = stock["change_pct"]
+    close_pos = stock["momentum"]
+    turnover_m = stock.get("turnover", 0) / 1_000_000
+    liquidity = min(24, math.log10(max(turnover_m, 1)) * 8)
+    tradable_range = min(16, stock["amplitude"] * 2.2)
+
+    # Continuation candidates need a decisive close; reversal-style guesses are
+    # deliberately avoided because tomorrow has not supplied confirmation yet.
+    long_score = liquidity + tradable_range + min(24, max(0, close_pos - 50) * .55) + min(16, max(0, chg) * 2.5)
+    short_score = liquidity + tradable_range + min(24, max(0, 50 - close_pos) * .55) + min(16, max(0, -chg) * 2.5)
+
+    # Limit-up/down proximity and oversized gaps leave little room for a small
+    # account to enter with controlled risk on the following morning.
+    overheat = max(0, abs(chg) - 6) * 8 + max(0, abs(stock.get("gap_pct", 0)) - 4) * 4
+    long_score -= overheat
+    short_score -= overheat
+    direction = "long" if long_score >= short_score else "short"
+    score = max(long_score, short_score)
+    levels = calc_levels(stock, stock["close"], direction)
+
+    if direction == "long":
+        invalidation = f"開盤跌破 {levels['stop_loss']:.2f}，或前15分鐘始終無法站回昨收 {stock['close']:.2f}"
+        if chg > 5:
+            trigger = f"不追跳空；回測 {levels['entry_zone_low']:.2f}～{levels['entry_zone_high']:.2f} 止穩且重新站上後才做多"
+        else:
+            trigger = f"前5～15分鐘守住 {levels['entry_zone_low']:.2f}，再帶量突破 {levels['entry_zone_high']:.2f} 才做多"
+    else:
+        invalidation = f"開盤突破 {levels['stop_loss']:.2f}，或前15分鐘始終站在昨收 {stock['close']:.2f} 之上"
+        if chg < -5:
+            trigger = f"不追低；反彈 {levels['entry_zone_low']:.2f}～{levels['entry_zone_high']:.2f} 遇壓轉弱才放空"
+        else:
+            trigger = f"前5～15分鐘無法站回 {levels['entry_zone_high']:.2f}，再跌破 {levels['entry_zone_low']:.2f} 才放空"
+
+    action = "watch" if score >= 55 else "wait"
+    confidence = "A" if score >= 72 else "B" if score >= 60 else "C"
+    return {
+        **levels,
+        "direction": direction,
+        "action": action,
+        "trade_score": round(max(0, min(100, score)), 1),
+        "confidence": confidence,
+        "trigger": trigger,
+        "invalidation": invalidation,
+        "short_warning": "明日放空前須確認可當沖資格、券源與強制回補時間" if direction == "short" else None,
+    }
+
+
 # ─────────────────────────────────────────
 #  盤後：績效評估
 # ─────────────────────────────────────────
@@ -759,26 +808,20 @@ def api_post():
     result, candidates = build_common_result(session_type, session_label)
     if result["error"] or not candidates:
         return jsonify(result)
+    ranked = []
+    # Evaluate every liquid candidate here; the original daily score favors
+    # strong closes and would otherwise hide valid short setups near the bottom.
+    for stock in candidates:
+        setup = tomorrow_setup(stock)
+        ranked.append((setup["trade_score"], stock, setup))
+    ranked.sort(key=lambda item: item[0], reverse=True)
     recs = []
-    for stock in candidates[:5]:
-        chg_pct   = stock["change_pct"]
-        direction = "long" if chg_pct > 0 else ("short" if chg_pct < -2 else "neutral")
-        levels    = calc_levels(stock, direction=direction if direction != "neutral" else "long")
-        perf      = assess_performance(stock, levels)
-        strength  = "strong" if stock["score"] > 60 else ("medium" if stock["score"] > 25 else "weak")
-        recs.append({**stock, **levels, "direction": direction, "strength": strength,
-                     "reason": build_reason(stock), "performance": perf})
-    tomorrow = []
-    for stock in candidates[5:10]:
-        levels = calc_levels(stock)
-        tomorrow.append({"code": stock["code"], "name": stock["name"],
-                         "close": stock["close"], "amplitude": stock["amplitude"],
-                         "volume_lots": stock["volume"] // 1000,
-                         "change_pct": stock["change_pct"], "sector": stock["sector"],
-                         "entry": levels["entry"], "stop_loss": levels["stop_loss"],
-                         "take_profit_1": levels["take_profit_1"]})
-    result["recommendations"]    = recs
-    result["tomorrow_watchlist"] = tomorrow
+    for _, stock, setup in ranked[:5]:
+        strength = "strong" if setup["trade_score"] >= 72 else ("medium" if setup["trade_score"] >= 60 else "weak")
+        recs.append({**stock, **setup, "strength": strength,
+                     "reason": build_reason(stock), "setup_type": "tomorrow"})
+    result["recommendations"] = recs
+    result["analysis_label"] = "明日開盤候選；須等待開盤後觸發條件成立，不代表預測必漲或必跌"
     return jsonify(result)
 
 

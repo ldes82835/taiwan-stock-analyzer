@@ -399,7 +399,7 @@ const API = { pre: "/api/pre", intraday: "/api/intraday", post: "/api/post" };
 const TABS_DESC = {
   pre:      "📊 盤前分析：以前一交易日收盤數據為基礎，預算今日觀察清單，並提供開盤量能確認條件。建議搭配期指走勢確認方向，開盤量能確認後再進場。",
   intraday: "⚡ 盤中即時：以最新成交數據動態篩選標的，疊加即時報價、估算均價位置、委買委賣報價，並依當下盤況提供 IOC / ROD 委託建議。",
-  post:     "📋 盤後總結：彙整今日收盤數據，回顧推薦標的的實際表現（停損/停利是否觸及），並自動產生明日盤前觀察清單。",
+  post:     "🎯 明日交易候選：依今日收盤的流動性、振幅、收盤位置與多空動能挑選 Top 5。這是明日觀察優先序，必須等開盤後觸發條件成立才進場。",
 };
 const SUB_SESS = {
   pre_open: { cls: "pre_open", icon: "🌙", tip: "建立觀察清單，預設好進出場價位，確認大盤期指方向後等待開盤。" },
@@ -688,12 +688,11 @@ function buildIntradayCard(s,rank) {
   return `<div class="card ${s.strength}">${buildCardHeader(s,rank)}${rtHtml}${buildDecision(s)}${otHtml}${buildVwap(s)}${buildLevels(s)}${buildPLCalc(s)}${buildStats(s)}${buildScoreBreakdown(s)}<div class="reason">💡 ${s.reason}</div></div>`;
 }
 function buildPostCard(s,rank) {
-  const perf=s.performance||{}, result=perf.result||"none";
+  const invalid=s.invalidation?`<div class="reason">🛑 取消條件：${s.invalidation}</div>`:"";
   return `<div class="card ${s.strength}">${buildCardHeader(s,rank)}
-  <div class="perf-badge ${result}">${perf.label||"—"}</div>
-  <div class="perf-note">${perf.note||""}</div>
+  ${buildDecision(s)}${invalid}
   ${buildVwap(s)}${buildLevels(s)}${buildPLCalc(s)}${buildStats(s)}${buildScoreBreakdown(s)}
-  <div class="reason">📋 ${s.reason}</div></div>`;
+  <div class="reason">📋 入選依據：${s.reason}</div></div>`;
 }
 function buildTomorrow(list) {
   if(!list||!list.length) return "";
@@ -837,13 +836,13 @@ async function loadData() {
       document.getElementById("cntAll").textContent=data.market_stats.total??"—";
       document.getElementById("filterBadge").textContent=`從 ${data.market_stats.total??"?"} 檔篩出 ${data.market_stats.filtered??"?"} 檔候選`;
     }
-    const titles={pre:"📊 盤前推薦標的 Top 5",intraday:"⚡ 盤中推薦標的 Top 5",post:"📋 今日推薦成效回顧 Top 5"};
+    const titles={pre:"📊 盤前推薦標的 Top 5",intraday:"⚡ 盤中推薦標的 Top 5",post:"🎯 明日交易候選 Top 5"};
     document.getElementById("secTitle").textContent=titles[currentTab]||titles.intraday;
     const grid=document.getElementById("grid"), tmr=document.getElementById("tomorrowSection");
     if(data.error){grid.innerHTML=`<div class="state-box err"><h3>⚠️ ${data.error}</h3><p>請確認網路連線，或等待交易時段後重試。</p></div>`;tmr.innerHTML="";return;}
     if(!data.recommendations?.length){grid.innerHTML=`<div class="state-box"><h3>📭 今日無符合條件的標的</h3><p>請稍後再試。</p></div>`;tmr.innerHTML="";return;}
     if(currentTab==="pre"){grid.innerHTML=data.recommendations.map((s,i)=>buildPreCard(s,i+1)).join("");tmr.innerHTML="";}
-    else if(currentTab==="post"){grid.innerHTML=data.recommendations.map((s,i)=>buildPostCard(s,i+1)).join("");tmr.innerHTML=buildTomorrow(data.tomorrow_watchlist);}
+    else if(currentTab==="post"){grid.innerHTML=data.recommendations.map((s,i)=>buildPostCard(s,i+1)).join("");tmr.innerHTML="";}
     else{grid.innerHTML=data.recommendations.map((s,i)=>buildIntradayCard(s,i+1)).join("");tmr.innerHTML="";}
     restorePLState(plState);
     saveToLog(data);
