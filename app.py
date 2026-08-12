@@ -1,9 +1,9 @@
 """
-台股當沖分析系統 - Flask Backend v2.2
-新增：產業族群、開盤強度、VWAP狀態
+台股當沖分析系統 - Flask Backend v2.3
+新增：即時訊號鎖定、跨 Top 5 報價追蹤、停利停損提醒
 """
 
-from flask import Flask, render_template, jsonify, Response
+from flask import Flask, render_template, jsonify, Response, request
 from flask_cors import CORS
 import requests
 import urllib3
@@ -778,7 +778,9 @@ def api_intraday():
         return jsonify(result)
     # Use daily data only to form a liquid universe, then rerank with live data.
     universe = candidates[:45]
-    realtime = get_realtime_prices([s["code"] for s in universe])
+    watched = [c for c in request.args.get("watch", "").split(",")
+               if c.isdigit() and len(c) == 4][:20]
+    realtime = get_realtime_prices([s["code"] for s in universe] + watched)
     ranked = []
     for stock in universe:
         rt = realtime.get(stock["code"])
@@ -799,6 +801,7 @@ def api_intraday():
     if not recs:
         result["error"] = "即時報價暫時不可用；為避免用舊資料產生交易訊號，本次不推薦標的。"
     result["recommendations"] = recs
+    result["tracked_quotes"] = {code: realtime[code] for code in watched if code in realtime}
     return jsonify(result)
 
 
@@ -844,7 +847,7 @@ if __name__ == "__main__":
     import os
     port = int(os.environ.get("PORT", 5000))
     print("=" * 55)
-    print("  台股當沖分析系統（三時段版 v2.2）")
+    print("  台股當沖分析系統（訊號追蹤版 v2.3）")
     print(f"  port={port}")
     print("=" * 55)
     app.run(debug=False, host="0.0.0.0", port=port)

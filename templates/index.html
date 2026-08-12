@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="robots" content="noindex,nofollow,noarchive" />
-  <title>台股當沖分析系統 v2.2</title>
+  <title>台股當沖分析系統 v2.3</title>
   <style>
     :root {
       --bg0:#f7f3ee; --bg1:#efe9e0; --bg2:#ffffff; --bg3:#fdf9f5;
@@ -236,7 +236,15 @@
     .state-box.err{border-color:rgba(201,48,48,.3);background:#fff8f8}
     .state-box h3{font-size:18px;margin-bottom:10px;color:var(--t0)}
     .state-box p{font-size:13px;color:var(--t1);line-height:1.7}
-    .state-box.err h3{color:var(--red)}
+.state-box.err h3{color:var(--red)}
+    .signal-panel{display:none;background:var(--bg2);border:1px solid var(--border);border-radius:13px;padding:14px 16px;margin:14px 0;box-shadow:var(--shadow)}
+    .signal-panel.show{display:block}.signal-hd{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
+    .signal-title{font-size:14px;font-weight:800}.signal-controls{display:flex;gap:8px}.signal-list{display:grid;gap:8px}
+    .signal-item{display:grid;grid-template-columns:80px 1fr auto;gap:10px;align-items:center;padding:10px 12px;border-radius:9px;background:var(--bg3);border:1px solid var(--border)}
+    .signal-code{font-weight:800}.signal-meta{font-size:11px;color:var(--t1);line-height:1.55}.signal-state{font-size:11px;font-weight:800;padding:4px 9px;border-radius:20px;white-space:nowrap}
+    .sig-armed{color:var(--blue);background:rgba(37,99,184,.1)}.sig-holding{color:#9a6800;background:rgba(234,179,8,.13)}
+    .sig-tp1,.sig-tp2{color:var(--green);background:rgba(30,138,72,.12)}.sig-stop{color:var(--red);background:rgba(201,48,48,.1)}.sig-closed{color:var(--t1);background:var(--bg1)}
+    .signal-flash{animation:signalFlash 1s ease-in-out 3}@keyframes signalFlash{50%{box-shadow:0 0 0 4px rgba(201,48,48,.2)}}
     .spinner{width:40px;height:40px;margin:0 auto 16px;border:3px solid var(--border);border-top-color:var(--blue);border-radius:50%;animation:spin 1s linear infinite}
     @keyframes spin{to{transform:rotate(360deg)}}
     .disclaimer{margin-top:36px;padding:15px 18px;background:rgba(154,104,0,.05);border:1px solid rgba(154,104,0,.2);border-radius:10px;font-size:12px;color:var(--t2);line-height:1.8}
@@ -358,19 +366,26 @@
     <div class="sess-line"></div>
     <div class="sess-node" id="tab-post">
       <span class="sess-icon">📋</span>
-      <span class="sess-nm">盤後總結</span>
+      <span class="sess-nm">明日候選</span>
       <span class="sess-t">13:30~</span>
     </div>
     <div class="sess-cd" id="sessCountdown">—</div>
   </div>
   <div class="sub-sess-bar pre_open" id="subSessBar" style="display:none"></div>
   <div class="desc" id="descEl">載入中…</div>
+  <div class="signal-panel" id="signalPanel">
+    <div class="signal-hd"><div class="signal-title">🔔 盤中訊號追蹤</div><div class="signal-controls">
+      <button class="btn-refresh" id="btnNotify" onclick="enableSignalAlerts()">開啟通知</button>
+      <button class="btn-refresh" onclick="clearFinishedSignals()">清除已結束</button>
+    </div></div>
+    <div class="signal-list" id="signalList"></div>
+  </div>
   <div class="criteria">
     <div class="crit"><span class="crit-icon">📦</span>成交量 ≥ 3,000 張</div>
     <div class="crit"><span class="crit-icon">📐</span>當日振幅 ≥ 3%</div>
     <div class="crit"><span class="crit-icon">💰</span>股價 20–300 元</div>
     <div class="crit"><span class="crit-icon">🔢</span>評分＝√量能 × 振幅% × 動能倍率</div>
-    <div class="crit"><span class="crit-icon">🎯</span>停損上限 1.5%</div>
+    <div class="crit"><span class="crit-icon">🎯</span>價格停損約 0.6%–2%</div>
     <div class="crit"><span class="crit-icon">⚖️</span>風險報酬 ≥ 1:1.5</div>
   </div>
   <div class="sec-hd">
@@ -408,7 +423,7 @@ const SUB_SESS = {
   late_mid: { cls: "late_mid", icon: "🕐", tip: "部位開始整理。強勢股若依然守高可持續，弱勢股若跌破均價線建議先行減倉。" },
   late:     { cls: "late",     icon: "⚡", tip: "尾盤決戰：主力開始平倉，量的變化是關鍵。強勢守高可留倉，弱勢應在 13:15 前完成平倉。" },
   closing:  { cls: "closing",  icon: "🔔", tip: "⚠️ 最後試算（13:25–13:30）：撮合價量劇烈變化，當沖務必在此前完成平倉！觀察收盤方向作為明日參考。" },
-  closed:   { cls: "closed",   icon: "🌙", tip: "今日交易已結束。可切換至盤後分析查看推薦成效，並預覽明日觀察清單。" },
+  closed:   { cls: "closed",   icon: "🌙", tip: "今日交易已結束。系統會直接整理明日交易候選 Top 5，明早仍須等待開盤條件確認。" },
 };
 const SECTOR_COLORS = {
   "半導體":"#6366f1","IC設計":"#8b5cf6","散熱模組":"#f97316","光通訊":"#06b6d4",
@@ -422,6 +437,84 @@ const SECTOR_COLORS = {
 let currentTab = "intraday", refreshTimer = null, currentData = null;
 let prevSessionType = null;
 let countdownTimer = null, nextRefreshAt = null;
+const SIGNAL_KEY="dt_signal_tracker_v1";
+let signals=loadSignals();
+
+function todayKey(){return new Date().toLocaleDateString("sv-SE",{timeZone:"Asia/Taipei"});}
+function loadSignals(){try{return JSON.parse(localStorage.getItem(SIGNAL_KEY)||"{}")||{};}catch(e){return {};}}
+function saveSignals(){try{localStorage.setItem(SIGNAL_KEY,JSON.stringify(signals));}catch(e){}}
+function activeSignalCodes(){return Object.values(signals).filter(s=>!["tp2","stop","closed"].includes(s.state)).map(s=>s.code).slice(0,20);}
+function signalLabel(state){return {armed:"等待確認",holding:"已進場追蹤",tp1:"停利①達成",tp2:"停利②出場",stop:"停損出場",closed:"已結束"}[state]||state;}
+
+function playSignalTone(urgent=false){
+  try{const C=window.AudioContext||window.webkitAudioContext,a=new C(),o=a.createOscillator(),g=a.createGain();o.connect(g);g.connect(a.destination);o.frequency.value=urgent?880:660;g.gain.setValueAtTime(.12,a.currentTime);g.gain.exponentialRampToValueAtTime(.001,a.currentTime+.45);o.start();o.stop(a.currentTime+.45);}catch(e){}
+}
+function notifySignal(title,body,urgent=false){
+  playSignalTone(urgent);
+  if("Notification" in window&&Notification.permission==="granted") try{new Notification(title,{body,tag:title});}catch(e){}
+  const p=document.getElementById("signalPanel"); if(p){p.classList.add("signal-flash");setTimeout(()=>p.classList.remove("signal-flash"),3200);}
+}
+async function enableSignalAlerts(){
+  if(!("Notification" in window)){alert("此瀏覽器不支援桌面通知，仍會保留畫面與聲音提醒。");return;}
+  const p=await Notification.requestPermission();
+  document.getElementById("btnNotify").textContent=p==="granted"?"通知已開啟":"通知未允許";
+  if(p==="granted") notifySignal("台股訊號通知已開啟","盤中訊號將在這個裝置提醒你。",false);
+}
+function clearFinishedSignals(){Object.keys(signals).forEach(k=>{if(["tp2","stop","closed"].includes(signals[k].state))delete signals[k];});saveSignals();renderSignals();}
+
+function processSignals(data){
+  if(currentTab!=="intraday"){renderSignals();return;}
+  const date=todayKey(), now=Date.now(), recMap=new Map((data.recommendations||[]).map(s=>[s.code,s]));
+  // A new trading day must never inherit yesterday's armed/holding state.
+  Object.values(signals).forEach(s=>{if(s.date!==date&&!['tp2','stop','closed'].includes(s.state)){s.state="closed";s.event="跨日自動結束";s.updated=now;}});
+
+  (data.recommendations||[]).forEach(s=>{
+    if(!["long","short"].includes(s.direction))return;
+    let sig=signals[s.code];
+    if(!sig||sig.date!==date){
+      signals[s.code]={code:s.code,name:s.name,date,state:"armed",direction:s.direction,qualified:0,missed:0,
+        entryLow:s.entry_zone_low,entryHigh:s.entry_zone_high,stop:s.stop_loss,tp1:s.take_profit_1,tp2:s.take_profit_2,
+        score:s.trade_score,event:"等待連續兩次確認",created:now,updated:now};
+    }
+  });
+
+  Object.values(signals).filter(s=>s.date===date&&!['tp2','stop','closed'].includes(s.state)).forEach(sig=>{
+    const rec=recMap.get(sig.code), q=(rec&&rec.realtime)||data.tracked_quotes?.[sig.code];
+    const price=q?.realtime_price;if(!price)return;
+    sig.lastPrice=price;sig.updated=now;
+    if(sig.state==="armed"){
+      if(!rec){sig.missed=(sig.missed||0)+1;if(sig.missed>=10){sig.state="closed";sig.event="連續未入選，取消觀察";}return;}
+      sig.missed=0;
+      const inZone=price>=sig.entryLow&&price<=sig.entryHigh;
+      const trendOk=sig.direction==="long"?q.above_avg===true:q.above_avg===false;
+      const qualified=rec.action==="enter"&&rec.trade_score>=58&&inZone&&trendOk&&(rec.spread_pct??0)<=.5;
+      sig.qualified=qualified?(sig.qualified||0)+1:0;
+      sig.event=qualified?`條件確認 ${sig.qualified}/2`:`等待進場區間 ${fmt2(sig.entryLow)}～${fmt2(sig.entryHigh)}`;
+      if(sig.qualified>=2){
+        const openCount=Object.values(signals).filter(x=>x.date===date&&["holding","tp1"].includes(x.state)).length;
+        if(openCount>=2){sig.qualified=1;sig.event="已有 2 筆追蹤部位，小資風控暫不新增";}
+        else{sig.state="holding";sig.entry=price;sig.entryTime=data.timestamp||new Date().toLocaleTimeString("zh-TW");sig.event="進場條件成立；停損停利已鎖定";notifySignal(`${sig.code} ${sig.name} 可進場`,`${sig.direction==="long"?"做多":"放空"} ${fmt2(price)}｜停損 ${fmt2(sig.stop)}`,true);}
+      }
+    }else if(sig.state==="holding"||sig.state==="tp1"){
+      const stopHit=sig.direction==="long"?price<=sig.stop:price>=sig.stop;
+      const tp2Hit=sig.direction==="long"?price>=sig.tp2:price<=sig.tp2;
+      const tp1Hit=sig.direction==="long"?price>=sig.tp1:price<=sig.tp1;
+      if(stopHit){sig.state="stop";sig.event=`停損條件成立 @ ${fmt2(price)}`;notifySignal(`${sig.code} 停損出場`,sig.event,true);}
+      else if(tp2Hit){sig.state="tp2";sig.event=`停利②條件成立 @ ${fmt2(price)}`;notifySignal(`${sig.code} 全部停利`,sig.event,true);}
+      else if(tp1Hit&&sig.state!=="tp1"){sig.state="tp1";sig.stop=sig.entry;sig.event=`停利①達成 @ ${fmt2(price)}；可減碼，剩餘部位停損已移至進場價`;notifySignal(`${sig.code} 停利①`,sig.event,false);}
+      const d=new Date(),mins=d.getHours()*60+d.getMinutes();
+      if(mins>=13*60+25&&!['tp2','stop'].includes(sig.state)){sig.state="closed";sig.event="已到當沖收尾時間，應完成平倉";notifySignal(`${sig.code} 當沖收尾`,sig.event,true);}
+    }
+  });
+  saveSignals();renderSignals();
+}
+function renderSignals(){
+  const panel=document.getElementById("signalPanel"),list=document.getElementById("signalList");if(!panel||!list)return;
+  const rows=Object.values(signals).filter(s=>s.date===todayKey()).sort((a,b)=>(b.updated||0)-(a.updated||0));
+  panel.classList.toggle("show",currentTab==="intraday"||rows.length>0);
+  list.innerHTML=rows.length?rows.map(s=>`<div class="signal-item"><div><div class="signal-code">${s.code}</div><div style="font-size:11px;color:var(--t1)">${s.name||""}｜${s.direction==="long"?"做多":"放空"}</div></div><div class="signal-meta">現價 ${fmt2(s.lastPrice??0)}｜進場 ${s.entry?fmt2(s.entry):fmt2(s.entryLow)+"～"+fmt2(s.entryHigh)}<br>停損 ${fmt2(s.stop)}｜停利 ${fmt2(s.tp1)} / ${fmt2(s.tp2)}<br>${s.event||""}</div><div class="signal-state sig-${s.state}">${signalLabel(s.state)}</div></div>`).join(""):`<div class="signal-meta">盤中候選載入後會開始觀察；連續兩次符合條件才發出進場訊號。</div>`;
+  const b=document.getElementById("btnNotify");if(b&&"Notification" in window&&Notification.permission==="granted")b.textContent="通知已開啟";
+}
 
 /* ── 台股交易日判斷 ── */
 const TW_HOLIDAYS = new Set([
@@ -809,10 +902,13 @@ async function loadData() {
   document.getElementById("pulseLabel").textContent="更新中";
   const plState=savePLState();
   try {
-    const res=await fetch(API[currentTab]||API.intraday);
+    const watch=currentTab==="intraday"?activeSignalCodes():[];
+    const base=API[currentTab]||API.intraday;
+    const res=await fetch(base+(watch.length?`?watch=${encodeURIComponent(watch.join(","))}`:""));
     if(!res.ok) throw new Error(res.status===502||res.status===503?`伺服器休眠中（${res.status}），請稍候 30 秒後重試`:`伺服器回應異常（HTTP ${res.status}）`);
     let data; try{data=await res.json();}catch(e){throw new Error("伺服器回傳格式異常，可能正在重新啟動，請稍候重試");}
     currentData=data;
+    processSignals(data);
     refreshStatusPill();
     if(data.sub_session) updateSubSessBanner(data.sub_session);
     document.getElementById("descEl").textContent=TABS_DESC[currentTab]??TABS_DESC.post;
