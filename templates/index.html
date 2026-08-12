@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex,nofollow,noarchive" />
   <title>台股當沖分析系統 v2.2</title>
   <style>
     :root {
@@ -585,16 +586,23 @@ function buildVwap(s) {
 
 function buildLevels(s) {
   const en=s.entry,sl=s.stop_loss,tp1=s.take_profit_1,tp2=s.take_profit_2;
-  const r=tp2-sl, fw=r>0?Math.min(100,Math.max(0,(en-sl)/r*100)).toFixed(1):50;
+  const isShort=s.direction==="short", pct=p=>Math.abs((p-en)/en*100);
+  const shares=s.suggested_shares_100k??0;
   return `<div class="levels">
-    <div class="lv-row"><div class="lv-dot dot-tp2"></div><div class="lv-label">停利 ②</div><div class="lv-price tp2">NT$ ${fmt2(tp2)}</div><div class="lv-pct pct-pos">+${fmt2((tp2-en)/en*100)}%</div></div>
-    <div class="lv-row"><div class="lv-dot dot-tp1"></div><div class="lv-label">停利 ①</div><div class="lv-price tp1">NT$ ${fmt2(tp1)}</div><div class="lv-pct pct-pos">+${fmt2((tp1-en)/en*100)}%</div></div>
-    <div class="lv-row"><div class="lv-dot dot-entry"></div><div class="lv-label">進場</div><div class="lv-price entry">NT$ ${fmt2(en)}</div><div class="lv-pct pct-neu">基準</div></div>
-    <div class="lv-row"><div class="lv-dot dot-sl"></div><div class="lv-label">停損</div><div class="lv-price sl">NT$ ${fmt2(sl)}</div><div class="lv-pct pct-neg">${fmt2((sl-en)/en*100)}%</div></div>
+    <div class="lv-row"><div class="lv-dot dot-tp2"></div><div class="lv-label">停利 ②</div><div class="lv-price tp2">NT$ ${fmt2(tp2)}</div><div class="lv-pct pct-pos">+${fmt2(pct(tp2))}%</div></div>
+    <div class="lv-row"><div class="lv-dot dot-tp1"></div><div class="lv-label">停利 ①</div><div class="lv-price tp1">NT$ ${fmt2(tp1)}</div><div class="lv-pct pct-pos">+${fmt2(pct(tp1))}%</div></div>
+    <div class="lv-row"><div class="lv-dot dot-entry"></div><div class="lv-label">進場區間</div><div class="lv-price entry">${fmt2(s.entry_zone_low??en)}～${fmt2(s.entry_zone_high??en)}</div><div class="lv-pct pct-neu">${isShort?"放空":"做多"}</div></div>
+    <div class="lv-row"><div class="lv-dot dot-sl"></div><div class="lv-label">停損</div><div class="lv-price sl">NT$ ${fmt2(sl)}</div><div class="lv-pct pct-neg">-${fmt2(pct(sl))}%</div></div>
   </div>
-  <div class="pbar-wrap">
-    <div class="pbar-track"><div class="pbar-fill" style="width:${fw}%"></div><div class="pbar-marker" style="left:${fw}%"></div></div>
-    <div class="pbar-labels"><span>停損 ${fmt2(sl)}</span><span>進場 ${fmt2(en)}</span><span>停利② ${fmt2(tp2)}</span></div>
+  ${s.suggested_shares_100k!==undefined?`<div class="reason">💰 小資部位試算：本金 10 萬約 ${shares} 股，預估最大虧損約 NT$ ${s.estimated_max_loss_100k??0}（單筆風險 0.75%，非下單指示）</div>`:""}`;
+}
+
+function buildDecision(s) {
+  if(!s.trade_score) return "";
+  const action={enter:"條件接近，可等觸發",watch:"避免追價，先觀察",wait:"暫不交易"}[s.action]||"觀察";
+  return `<div class="order-tip ot-${s.action==="wait"?"neutral":s.direction==="short"?"green":"blue"}">
+    <span class="ot-badge">${s.confidence??"C"}｜${s.trade_score}</span>
+    <span><strong>${action}：</strong>${s.trigger||"等待明確訊號"}${s.short_warning?`<br>⚠️ ${s.short_warning}`:""}</span>
   </div>`;
 }
 function buildStats(s) {
@@ -644,7 +652,7 @@ function buildCardHeader(s,rank) {
     </div>
     <div class="badges"><div class="rank">#${rank}</div><span class="badge badge-${s.strength}">${sLbl}</span>${dirBadge}</div>
   </div>
-  <div class="price-row"><span class="price-main">${fmt2(s.close)}</span><span class="price-chg ${priceClass}">${fmtP(s.change_pct)}</span></div>`;
+  <div class="price-row"><span class="price-main">${fmt2(s.realtime?.realtime_price??s.close)}</span><span class="price-chg ${priceClass}">${fmtP(s.realtime?.realtime_change_pct??s.change_pct)}</span></div>`;
 }
 
 function buildPreCard(s,rank) {
@@ -677,7 +685,7 @@ function buildIntradayCard(s,rank) {
   }
   let otHtml="";
   if(s.order_tip){const ot=s.order_tip;otHtml=`<div class="order-tip ot-${ot.color}"><span class="ot-badge">${ot.type}</span><span><strong>${ot.label}：</strong>${ot.tip}</span></div>`;}
-  return `<div class="card ${s.strength}">${buildCardHeader(s,rank)}${rtHtml}${otHtml}${buildVwap(s)}${buildLevels(s)}${buildPLCalc(s)}${buildStats(s)}${buildScoreBreakdown(s)}<div class="reason">💡 ${s.reason}</div></div>`;
+  return `<div class="card ${s.strength}">${buildCardHeader(s,rank)}${rtHtml}${buildDecision(s)}${otHtml}${buildVwap(s)}${buildLevels(s)}${buildPLCalc(s)}${buildStats(s)}${buildScoreBreakdown(s)}<div class="reason">💡 ${s.reason}</div></div>`;
 }
 function buildPostCard(s,rank) {
   const perf=s.performance||{}, result=perf.result||"none";

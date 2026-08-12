@@ -3,16 +3,66 @@
 新增：產業族群、開盤強度、VWAP狀態
 """
 
-from flask import Flask, render_template, jsonify
+from flask import Flask, render_template, jsonify, Response
 from flask_cors import CORS
 import requests
 import urllib3
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor
+from threading import Lock
+import math
+import time
+
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 app = Flask(__name__)
 CORS(app)
+
+
+@app.after_request
+def discourage_indexing(response):
+    # This is privacy hygiene, not authentication. It keeps compliant search
+    # engines from listing a personal tool without changing how the owner uses it.
+    response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive"
+    return response
+
+# Reuse HTTPS connections and retry short-lived upstream failures.  The TWSE
+# endpoints are the slowest part of a request, so connection pooling matters.
+HTTP = requests.Session()
+HTTP.headers.update(HEADERS if "HEADERS" in globals() else {})
+HTTP.mount("https://", HTTPAdapter(
+    pool_connections=8,
+    pool_maxsize=16,
+    max_retries=Retry(total=2, connect=2, read=1, backoff_factor=0.25,
+                      status_forcelist=(429, 500, 502, 503, 504),
+                      allowed_methods=frozenset(("GET",))),
+))
+
+_CACHE = {}
+_CACHE_LOCK = Lock()
+
+
+def cached(key, ttl, loader, stale_ttl=600):
+    """Small in-memory stale-while-error cache suitable for one Render worker."""
+    now = time.time()
+    with _CACHE_LOCK:
+        item = _CACHE.get(key)
+        if item and now - item[0] < ttl:
+            return item[1], True, False
+    try:
+        value = loader()
+        with _CACHE_LOCK:
+            _CACHE[key] = (now, value)
+        return value, False, False
+    except Exception:
+        with _CACHE_LOCK:
+            item = _CACHE.get(key)
+        if item and now - item[0] < stale_ttl:
+            return item[1], True, True
+        raise
 
 HEADERS = {
     "User-Agent": (
@@ -24,6 +74,7 @@ HEADERS = {
     "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
     "Referer": "https://www.twse.com.tw/",
 }
+HTTP.headers.update(HEADERS)
 
 # ─────────────────────────────────────────
 #  產業族群對照表
@@ -165,7 +216,7 @@ def get_all_stocks():
     # 優先用 TWSE Open API（可從海外伺服器存取）
     url_open = "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL"
     try:
-        r = requests.get(url_open, headers=HEADERS, timeout=20, verify=False)
+        r = HTTP.get(url_open, timeout=(3.5, 12))
         r.raise_for_status()
         items = r.json()
         if items and isinstance(items, list) and len(items) > 100:
@@ -199,7 +250,7 @@ def get_all_stocks():
     # 備用：舊版 TWSE 端點（台灣 IP 才能用）
     url = "https://www.twse.com.tw/exchangeReport/STOCK_DAY_ALL?response=json"
     try:
-        r = requests.get(url, headers=HEADERS, timeout=15, verify=False)
+        r = HTTP.get(url, timeout=(3.5, 10))
         r.raise_for_status()
         body = r.json()
         if body.get("stat") == "OK":
@@ -215,7 +266,7 @@ def _fetch_mis_index(ex_ch):
         f"?ex_ch={ex_ch}&json=1&delay=0"
     )
     try:
-        r = requests.get(url, headers=HEADERS, timeout=10, verify=False)
+        r = HTTP.get(url, timeout=(3, 7))
         items = r.json().get("msgArray", [])
         if items:
             it = items[0]
@@ -243,13 +294,13 @@ def get_otc_index():
     return _fetch_mis_index("otc_o00.tw")
 
 
-def get_realtime_prices(codes):
+def _get_realtime_chunk(codes):
     if not codes:
         return {}
     ex_ch = "|".join(f"tse_{c}.tw" for c in codes[:20])
     url = f"https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch={ex_ch}&json=1&delay=0"
     try:
-        r = requests.get(url, headers=HEADERS, timeout=10, verify=False)
+        r = HTTP.get(url, timeout=(3, 7))
         result = {}
         for it in r.json().get("msgArray", []):
             code = it.get("c", "")
@@ -278,6 +329,26 @@ def get_realtime_prices(codes):
     except Exception as e:
         print(f"[REALTIME ERROR] {e}")
         return {}
+
+
+def get_realtime_prices(codes):
+    """Fetch up to 60 quotes in parallel batches instead of one slow request."""
+    unique = list(dict.fromkeys(codes))[:60]
+    chunks = [unique[i:i + 20] for i in range(0, len(unique), 20)]
+    if not chunks:
+        return {}
+
+    def load():
+        result = {}
+        with ThreadPoolExecutor(max_workers=min(3, len(chunks))) as pool:
+            for part in pool.map(_get_realtime_chunk, chunks):
+                result.update(part)
+        return result
+
+    cache_key = "quotes:" + ",".join(unique)
+    # Browser refreshes every 30 seconds; a 12-second cache prevents duplicate
+    # requests from overlapping tabs without making the screen feel stale.
+    return cached(cache_key, 12, load, stale_ttl=90)[0]
 
 
 # ─────────────────────────────────────────
@@ -371,26 +442,104 @@ def screen_stocks(rows):
 #  停損 / 停利計算
 # ─────────────────────────────────────────
 
-def calc_levels(stock):
-    entry    = stock["close"]
-    low      = stock["low"]
-    sl_low   = round(low   * 0.995, 2)
-    sl_fixed = round(entry * 0.985, 2)
-    stop_loss = max(sl_low, sl_fixed)
-    risk    = entry - stop_loss
-    tp1_r   = round(entry + risk * 1.5, 2)
-    tp1_f   = round(entry * 1.020, 2)
-    tp1     = min(tp1_r, tp1_f)
-    tp2_r   = round(entry + risk * 2.5, 2)
-    tp2_f   = round(entry * 1.035, 2)
-    tp2     = max(tp2_r, tp2_f)
-    rr1 = round((tp1 - entry) / risk, 2) if risk > 0 else 0
-    rr2 = round((tp2 - entry) / risk, 2) if risk > 0 else 0
+def tick_size(price):
+    if price < 10: return 0.01
+    if price < 50: return 0.05
+    if price < 100: return 0.1
+    if price < 500: return 0.5
+    if price < 1000: return 1.0
+    return 5.0
+
+
+def to_tick(price, mode="nearest"):
+    tick = tick_size(max(price, 0.01))
+    units = price / tick
+    units = math.floor(units) if mode == "floor" else math.ceil(units) if mode == "ceil" else round(units)
+    decimals = 2 if tick < .1 else 1 if tick < 1 else 0
+    return round(units * tick, decimals)
+
+
+def calc_levels(stock, price=None, direction=None):
+    """Risk-first plan. Supports both long and short and respects TWSE ticks."""
+    direction = direction or stock.get("direction", "long")
+    entry = price or stock.get("realtime_price") or stock["close"]
+    high, low = stock["high"], stock["low"]
+    day_range = max(high - low, entry * .012)
+    # Use nearby structure, but cap single-trade price risk around 2% so a small
+    # account is not forced into a large loss. A minimum avoids market noise.
+    min_risk = max(entry * .006, tick_size(entry) * 3)
+    max_risk = entry * .02
+    structural = (entry - low) + tick_size(entry) * 2 if direction == "long" else (high - entry) + tick_size(entry) * 2
+    risk = min(max(structural, min_risk, day_range * .18), max_risk)
+
+    if direction == "short":
+        stop_loss = to_tick(entry + risk, "ceil")
+        tp1 = to_tick(entry - risk * 1.5, "floor")
+        tp2 = to_tick(entry - risk * 2.2, "floor")
+        zone_low, zone_high = to_tick(entry - risk * .15, "floor"), to_tick(entry + risk * .10, "ceil")
+    else:
+        stop_loss = to_tick(entry - risk, "floor")
+        tp1 = to_tick(entry + risk * 1.5, "ceil")
+        tp2 = to_tick(entry + risk * 2.2, "ceil")
+        zone_low, zone_high = to_tick(entry - risk * .10, "floor"), to_tick(entry + risk * .15, "ceil")
+
+    actual_risk = abs(entry - stop_loss)
+    # Illustration for NT$100k: risk 0.75%, exposure capped at 35%.
+    shares_by_risk = math.floor(750 / actual_risk) if actual_risk else 0
+    shares_by_cash = math.floor(35000 / entry) if entry else 0
+    suggested_shares = max(0, min(shares_by_risk, shares_by_cash))
     return {
-        "entry": entry, "stop_loss": stop_loss,
-        "take_profit_1": round(tp1, 2), "take_profit_2": round(tp2, 2),
-        "risk_pct":      round(risk / entry * 100, 2),
-        "reward_risk_1": rr1, "reward_risk_2": rr2,
+        "entry": to_tick(entry), "entry_zone_low": zone_low, "entry_zone_high": zone_high,
+        "stop_loss": stop_loss, "take_profit_1": tp1, "take_profit_2": tp2,
+        "risk_pct": round(actual_risk / entry * 100, 2),
+        "reward_risk_1": round(abs(tp1-entry) / actual_risk, 2) if actual_risk else 0,
+        "reward_risk_2": round(abs(tp2-entry) / actual_risk, 2) if actual_risk else 0,
+        "suggested_shares_100k": suggested_shares,
+        "estimated_max_loss_100k": round(suggested_shares * actual_risk),
+        "position_note": "以本金10萬、單筆風險0.75%、單檔投入上限35%試算；請依實際本金等比例調整",
+    }
+
+
+def intraday_decision(stock, rt):
+    """Turn a liquid daily candidate into an actionable live trade/no-trade plan."""
+    price = rt.get("realtime_price") if rt else stock["close"]
+    change = rt.get("realtime_change_pct", stock["change_pct"]) if rt else stock["change_pct"]
+    high = rt.get("intraday_high") or stock["high"] if rt else stock["high"]
+    low = rt.get("intraday_low") or stock["low"] if rt else stock["low"]
+    avg = rt.get("avg_price") if rt else stock.get("vwap_est")
+    above = rt.get("above_avg") if rt else stock.get("above_vwap")
+    spread_pct = 0.0
+    if rt and rt.get("bid") and rt.get("ask") and price:
+        spread_pct = (rt["ask"] - rt["bid"]) / price * 100
+    range_pos = (price - low) / (high - low) * 100 if high and low and high > low else 50
+    liquidity = min(25, math.log10(max(stock["turnover"], 1)) * 3)
+
+    long_score = liquidity + min(22, max(0, change) * 3.2) + (18 if above else 0) + min(18, max(0, range_pos - 45) * .45)
+    short_score = liquidity + min(22, max(0, -change) * 3.2) + (18 if above is False else 0) + min(18, max(0, 55 - range_pos) * .45)
+    # Penalize chasing near the daily limit and names with a costly spread.
+    chase_penalty = max(0, abs(change) - 6) * 6
+    spread_penalty = max(0, spread_pct - .18) * 80
+    long_score -= chase_penalty + spread_penalty
+    short_score -= chase_penalty + spread_penalty
+    direction = "long" if long_score >= short_score else "short"
+    score = max(long_score, short_score)
+
+    if score < 48 or spread_pct > .5:
+        direction, action = "neutral", "wait"
+        trigger = "訊號不足：等待價格重新站上/跌破盤中均價，且買賣價差收斂"
+    elif direction == "long":
+        action = "watch" if change > 6 or range_pos > 92 else "enter"
+        trigger = f"回踩均價 {avg:.2f} 不破後轉強，或帶量突破 {high:.2f}" if avg else f"帶量突破 {high:.2f}"
+    else:
+        action = "watch" if change < -6 or range_pos < 8 else "enter"
+        trigger = f"反彈均價 {avg:.2f} 不過後轉弱，或放量跌破 {low:.2f}" if avg else f"放量跌破 {low:.2f}"
+
+    confidence = "A" if score >= 72 else "B" if score >= 58 else "C"
+    return {
+        "direction": direction, "action": action, "trade_score": round(max(0, min(100, score)), 1),
+        "confidence": confidence, "trigger": trigger, "range_position": round(range_pos, 1),
+        "spread_pct": round(spread_pct, 3),
+        "short_warning": "放空前須確認可當沖資格、券源與強制回補時間" if direction == "short" else None,
     }
 
 
@@ -423,18 +572,18 @@ def suggest_order_type(stock, rt):
 
     mom = stock["momentum"]
 
-    if change_pct > 4 and mom > 70:
-        return {"type": "IOC", "color": "red",  "label": "建議 IOC 搶單",
-                "tip": "強勢突破動能中，建議用 IOC（立即成交否則取消）搶進，避免掛單未成交後反被套在高點。"}
+    if abs(change_pct) > 6:
+        return {"type": "WAIT", "color": "neutral", "label": "漲跌過度，不追價",
+                "tip": "價格已大幅偏離昨收，小資金最怕追價後被震出；等待拉回/反彈確認，不使用市價或 IOC 搶單。"}
     elif above_avg is True and change_pct > 1:
-        return {"type": "ROD", "color": "blue", "label": "站上均價 ROD 追進",
-                "tip": "股價站上盤中均價估算線，多方格局相對確立，可掛 ROD（當日有效）在現價附近分批布局。"}
-    elif change_pct < -2 or (above_avg is False and mom < 40):
-        return {"type": "ROD", "color": "green", "label": "支撐位 ROD 低接",
-                "tip": "股價回測至均價估算線下方，可掛 ROD 在關鍵支撐位耐心等候，停損設在最近低點下方。"}
+        return {"type": "ROD", "color": "blue", "label": "限價 ROD 等回踩",
+                "tip": "多方仍占優，但只在進場區間用限價單等待；沒有回踩就放棄，不為了成交而追高。"}
+    elif above_avg is False and change_pct < -1:
+        return {"type": "ROD", "color": "green", "label": "限價 ROD 等反彈空點",
+                "tip": "空方占優，等反彈不過均價再考慮放空；先確認可當沖與券源，不直接追殺低點。"}
     elif change_pct > 1 and mom > 55:
-        return {"type": "ROD", "color": "amber", "label": "順勢 ROD 跟進",
-                "tip": "走勢偏多但未到強勢突破，建議掛 ROD 在合理進場點，切勿追高，設好停損再操作。"}
+        return {"type": "ROD", "color": "amber", "label": "限價 ROD 等確認",
+                "tip": "只在系統進場區間內掛限價單；若停損距離或買賣價差擴大，取消交易。"}
     else:
         return {"type": "WAIT", "color": "neutral", "label": "觀望等訊號",
                 "tip": "目前盤勢方向不明，建議等待明確量能放大或方向確立後再進場，不急於下單。"}
@@ -477,18 +626,23 @@ def assess_performance(stock, levels):
     high  = stock["high"]; low = stock["low"]
     tp1   = levels["take_profit_1"]; tp2 = levels["take_profit_2"]
     sl    = levels["stop_loss"];     entry = levels["entry"]
-    if high >= tp2:
+    is_short = sl > entry
+    hit_tp2 = low <= tp2 if is_short else high >= tp2
+    hit_tp1 = low <= tp1 if is_short else high >= tp1
+    hit_sl = high >= sl if is_short else low <= sl
+    sign = -1 if is_short else 1
+    if hit_tp2:
         result="tp2"; label="✅ 停利② 達成"; color="green2"
-        profit=round((tp2-entry)/entry*100,2)
-        note=f"最高 {high:.2f} 超越停利② {tp2:.2f}，報酬約 +{profit}%"
-    elif high >= tp1:
+        profit=round((tp2-entry)/entry*100*sign,2)
+        note=f"{'最低' if is_short else '最高'} {low if is_short else high:.2f} 觸及停利② {tp2:.2f}，報酬約 +{profit}%"
+    elif hit_tp1:
         result="tp1"; label="✅ 停利① 達成"; color="green"
-        profit=round((tp1-entry)/entry*100,2)
-        note=f"最高 {high:.2f} 觸及停利① {tp1:.2f}，報酬約 +{profit}%"
-    elif low <= sl:
+        profit=round((tp1-entry)/entry*100*sign,2)
+        note=f"{'最低' if is_short else '最高'} {low if is_short else high:.2f} 觸及停利① {tp1:.2f}，報酬約 +{profit}%"
+    elif hit_sl:
         result="sl"; label="❌ 觸及停損"; color="red"
-        profit=round((sl-entry)/entry*100,2)
-        note=f"最低 {low:.2f} 跌破停損 {sl:.2f}，損失約 {profit}%"
+        profit=round((sl-entry)/entry*100*sign,2)
+        note=f"{'最高' if is_short else '最低'} {high if is_short else low:.2f} 觸及停損 {sl:.2f}，損失約 {profit}%"
     else:
         result="none"; label="⏳ 未觸發"; color="neutral"
         profit=round((stock["close"]-entry)/entry*100,2)
@@ -497,9 +651,21 @@ def assess_performance(stock, levels):
 
 
 def build_common_result(session_type, session_label):
-    raw_rows, data_date = get_all_stocks()
-    index_data          = get_market_index()
-    otc_data            = get_otc_index()
+    def load_rows():
+        value = get_all_stocks()
+        if not value[0]:
+            raise RuntimeError("TWSE returned no rows")
+        return value
+
+    # These three upstream calls are independent. Running them concurrently
+    # changes normal latency from their sum to roughly the slowest one.
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        rows_future = pool.submit(cached, "all_stocks", 25 if session_type == "intraday" else 180, load_rows, 1800)
+        index_future = pool.submit(cached, "market_index", 10 if session_type == "intraday" else 60, get_market_index, 300)
+        otc_future = pool.submit(cached, "otc_index", 10 if session_type == "intraday" else 60, get_otc_index, 300)
+        (raw_rows, data_date), rows_cached, rows_stale = rows_future.result()
+        index_data, _, index_stale = index_future.result()
+        otc_data, _, otc_stale = otc_future.result()
     ss_type, ss_label   = sub_session()
     result = {
         "status": session_type, "status_label": session_label,
@@ -508,6 +674,11 @@ def build_common_result(session_type, session_label):
         "market_index": index_data,
         "otc_index":    otc_data,
         "sub_session":  {"type": ss_type, "label": ss_label},
+        "freshness": {
+            "market_rows_cached": rows_cached,
+            "using_stale_fallback": bool(rows_stale or index_stale or otc_stale),
+            "quotes_cache_seconds": 12,
+        },
         "recommendations": [], "market_stats": {}, "error": None,
     }
     if not raw_rows:
@@ -539,10 +710,10 @@ def api_pre():
         return jsonify(result)
     recs = []
     for stock in candidates[:5]:
-        levels    = calc_levels(stock)
         open_cond = calc_open_conditions(stock)
         chg_pct   = stock["change_pct"]
         direction = "long" if chg_pct > 0 else ("short" if chg_pct < -2 else "neutral")
+        levels    = calc_levels(stock, direction=direction if direction != "neutral" else "long")
         strength  = "strong" if stock["score"] > 60 else ("medium" if stock["score"] > 25 else "weak")
         recs.append({**stock, **levels, "direction": direction, "strength": strength,
                      "reason": build_reason(stock), "open_conditions": open_cond})
@@ -556,19 +727,28 @@ def api_intraday():
     result, candidates = build_common_result(session_type, session_label)
     if result["error"] or not candidates:
         return jsonify(result)
-    top10_codes = [s["code"] for s in candidates[:10]]
-    realtime    = get_realtime_prices(top10_codes)
+    # Use daily data only to form a liquid universe, then rerank with live data.
+    universe = candidates[:45]
+    realtime = get_realtime_prices([s["code"] for s in universe])
+    ranked = []
+    for stock in universe:
+        rt = realtime.get(stock["code"])
+        if not rt:
+            continue
+        decision = intraday_decision(stock, rt)
+        ranked.append((decision["trade_score"], stock, rt, decision))
+    ranked.sort(key=lambda item: item[0], reverse=True)
+
     recs = []
-    for stock in candidates[:5]:
-        levels    = calc_levels(stock)
-        rt        = realtime.get(stock["code"])
-        chg_pct   = stock["change_pct"]
-        direction = "long" if chg_pct > 0 else ("short" if chg_pct < -2 else "neutral")
-        strength  = "strong" if stock["score"] > 60 else ("medium" if stock["score"] > 25 else "weak")
-        order_tip = suggest_order_type(stock, rt)
-        recs.append({**stock, **levels, "direction": direction, "strength": strength,
-                     "reason": build_reason(stock), "realtime": rt if rt else None,
-                     "order_tip": order_tip})
+    for _, stock, rt, decision in ranked[:5]:
+        direction = decision["direction"]
+        levels = calc_levels(stock, rt.get("realtime_price"), direction if direction != "neutral" else "long")
+        strength = "strong" if decision["trade_score"] >= 72 else ("medium" if decision["trade_score"] >= 58 else "weak")
+        recs.append({**stock, **levels, **decision, "strength": strength,
+                     "reason": build_reason(stock), "realtime": rt,
+                     "order_tip": suggest_order_type(stock, rt)})
+    if not recs:
+        result["error"] = "即時報價暫時不可用；為避免用舊資料產生交易訊號，本次不推薦標的。"
     result["recommendations"] = recs
     return jsonify(result)
 
@@ -581,10 +761,10 @@ def api_post():
         return jsonify(result)
     recs = []
     for stock in candidates[:5]:
-        levels    = calc_levels(stock)
-        perf      = assess_performance(stock, levels)
         chg_pct   = stock["change_pct"]
         direction = "long" if chg_pct > 0 else ("short" if chg_pct < -2 else "neutral")
+        levels    = calc_levels(stock, direction=direction if direction != "neutral" else "long")
+        perf      = assess_performance(stock, levels)
         strength  = "strong" if stock["score"] > 60 else ("medium" if stock["score"] > 25 else "weak")
         recs.append({**stock, **levels, "direction": direction, "strength": strength,
                      "reason": build_reason(stock), "performance": perf})
@@ -610,6 +790,11 @@ def api_analysis():
 @app.route("/health")
 def health():
     return "OK", 200
+
+
+@app.route("/robots.txt")
+def robots():
+    return Response("User-agent: *\nDisallow: /\n", mimetype="text/plain")
 
 
 if __name__ == "__main__":
