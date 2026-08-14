@@ -1,6 +1,6 @@
 """
-台股當沖分析系統 - Flask Backend v2.3
-新增：即時訊號鎖定、跨 Top 5 報價追蹤、停利停損提醒
+台股當沖分析系統 - Flask Backend v2.4
+新增：即時量能硬門檻、資料新鮮度檢查、金融股加嚴與風控熔斷
 """
 
 from flask import Flask, render_template, jsonify, Response, request
@@ -43,6 +43,8 @@ HTTP.mount("https://", HTTPAdapter(
 
 _CACHE = {}
 _CACHE_LOCK = Lock()
+_QUOTE_STATE = {}
+_QUOTE_LOCK = Lock()
 
 
 def cached(key, ttl, loader, stale_ttl=600):
@@ -144,7 +146,7 @@ SECTOR_MAP = {
     "2885": "金融", "2891": "金融", "2892": "金融",
     "5880": "金融", "2883": "金融", "2887": "金融",
     "2888": "金融", "2890": "金融", "2880": "金融",
-    "2881": "金融", "2889": "金融", "5876": "金融",
+    "2881": "金融", "2889": "金融", "5871": "金融", "5876": "金融",
     # 航運/航空
     "2603": "航運", "2615": "航運", "2609": "航運",
     "2610": "航空", "2618": "航空",
@@ -260,6 +262,17 @@ def get_all_stocks():
     return [], ""
 
 
+def get_daytrade_eligible_codes():
+    """Official TWSE day-trading list; Suspension=Y is excluded."""
+    def load():
+        r = HTTP.get("https://openapi.twse.com.tw/v1/exchangeReport/TWTB4U", timeout=(3.5, 12))
+        r.raise_for_status()
+        rows = r.json()
+        return {str(x.get("Code", "")).strip() for x in rows
+                if str(x.get("Suspension", "")).strip().upper() != "Y"}
+    return cached("daytrade_eligible", 21600, load, stale_ttl=86400)[0]
+
+
 def _fetch_mis_index(ex_ch):
     url = (
         "https://mis.twse.com.tw/stock/api/getStockInfo.jsp"
@@ -309,21 +322,62 @@ def _get_realtime_chunk(codes):
             v = safe_float(str(it.get("v", "0")).replace(",", ""))
             h = safe_float(it.get("h"))
             l = safe_float(it.get("l"))
-            if not z:
-                z = y
+            bid = safe_float((it.get("b") or "").split("_")[0])
+            ask = safe_float((it.get("a") or "").split("_")[0])
+            bid_sizes = [safe_float(x) or 0 for x in (it.get("g") or "").split("_") if x]
+            ask_sizes = [safe_float(x) or 0 for x in (it.get("f") or "").split("_") if x]
+            quote_ms = safe_float(it.get("tlong"))
+            quote_age = max(0, time.time() - quote_ms / 1000) if quote_ms else None
+            midpoint = (bid + ask) / 2 if bid and ask else bid or ask
+
+            with _QUOTE_LOCK:
+                state = _QUOTE_STATE.setdefault(code, {})
+                price_source = "trade"
+                if z:
+                    state["last_trade"] = z
+                    state["last_trade_seen"] = time.time()
+                elif state.get("last_trade") and time.time() - state.get("last_trade_seen", 0) <= 120:
+                    z = state["last_trade"]
+                    price_source = "last_trade_cache"
+                elif midpoint:
+                    z = midpoint
+                    price_source = "bid_ask_midpoint"
+                else:
+                    z = y
+                    price_source = "previous_close"
+
+                # Sampled VWAP uses volume increments observed while this worker
+                # is alive. It is explicitly labelled approximate in the UI.
+                prev_v = state.get("volume_lots")
+                if v and z:
+                    if prev_v is None or v < prev_v:
+                        state.update(volume_lots=v, pv=v * z, sampled_volume=v, samples=1)
+                    elif v > prev_v:
+                        delta = v - prev_v
+                        state["pv"] = state.get("pv", 0) + delta * z
+                        state["sampled_volume"] = state.get("sampled_volume", 0) + delta
+                        state["samples"] = state.get("samples", 0) + 1
+                        state["volume_lots"] = v
+                sampled_vwap = (state.get("pv", 0) / state.get("sampled_volume", 1)) if state.get("sampled_volume") else None
+                samples = state.get("samples", 0)
+
             if code and z and y:
-                chg_pct   = round((z - y) / y * 100, 2)
-                bid       = safe_float((it.get("b") or "").split("_")[0])
-                ask       = safe_float((it.get("a") or "").split("_")[0])
-                avg_price = round((h + l + z) / 3, 2) if h and l and z else z
-                above_avg = z >= avg_price if avg_price else None
+                chg_pct = round((z - y) / y * 100, 2)
+                book_total = sum(bid_sizes) + sum(ask_sizes)
+                book_imbalance = (sum(bid_sizes) - sum(ask_sizes)) / book_total if book_total else 0
                 result[code] = {
-                    "realtime_price":      z,
+                    "realtime_price":      round(z, 2),
                     "realtime_change_pct": chg_pct,
                     "realtime_volume_k":   int(v * 1000) if v else 0,
                     "bid": bid, "ask": ask,
                     "intraday_high": h, "intraday_low": l,
-                    "avg_price": avg_price, "above_avg": above_avg,
+                    "sampled_vwap": round(sampled_vwap, 2) if sampled_vwap else None,
+                    "vwap_samples": samples,
+                    "above_vwap": z >= sampled_vwap if sampled_vwap else None,
+                    "price_source": price_source,
+                    "quote_time": it.get("t") or it.get("%"),
+                    "quote_age_seconds": round(quote_age, 1) if quote_age is not None else None,
+                    "book_imbalance": round(book_imbalance, 3),
                 }
         return result
     except Exception as e:
@@ -332,23 +386,21 @@ def _get_realtime_chunk(codes):
 
 
 def get_realtime_prices(codes):
-    """Fetch up to 60 quotes in parallel batches instead of one slow request."""
-    unique = list(dict.fromkeys(codes))[:60]
+    """Fetch a bounded liquid universe plus explicitly tracked symbols."""
+    unique = list(dict.fromkeys(codes))[:120]
     chunks = [unique[i:i + 20] for i in range(0, len(unique), 20)]
     if not chunks:
         return {}
 
     def load():
         result = {}
-        with ThreadPoolExecutor(max_workers=min(3, len(chunks))) as pool:
+        with ThreadPoolExecutor(max_workers=min(6, len(chunks))) as pool:
             for part in pool.map(_get_realtime_chunk, chunks):
                 result.update(part)
         return result
 
     cache_key = "quotes:" + ",".join(unique)
-    # Browser refreshes every 30 seconds; a 12-second cache prevents duplicate
-    # requests from overlapping tabs without making the screen feel stale.
-    return cached(cache_key, 12, load, stale_ttl=90)[0]
+    return cached(cache_key, 3, load, stale_ttl=20)[0]
 
 
 # ─────────────────────────────────────────
@@ -501,44 +553,76 @@ def calc_levels(stock, price=None, direction=None):
 
 
 def intraday_decision(stock, rt):
-    """Turn a liquid daily candidate into an actionable live trade/no-trade plan."""
+    """Require live liquidity before a symbol can enter the intraday ranking."""
     price = rt.get("realtime_price") if rt else stock["close"]
     change = rt.get("realtime_change_pct", stock["change_pct"]) if rt else stock["change_pct"]
     high = rt.get("intraday_high") or stock["high"] if rt else stock["high"]
     low = rt.get("intraday_low") or stock["low"] if rt else stock["low"]
-    avg = rt.get("avg_price") if rt else stock.get("vwap_est")
-    above = rt.get("above_avg") if rt else stock.get("above_vwap")
+    sampled_vwap = rt.get("sampled_vwap") if rt else None
+    above = rt.get("above_vwap") if rt else None
     spread_pct = 0.0
     if rt and rt.get("bid") and rt.get("ask") and price:
         spread_pct = (rt["ask"] - rt["bid"]) / price * 100
     range_pos = (price - low) / (high - low) * 100 if high and low and high > low else 50
-    liquidity = min(25, math.log10(max(stock["turnover"], 1)) * 3)
+    current_lots = rt.get("realtime_volume_k", 0) / 1000
+    previous_lots = max(stock.get("volume", 0) / 1000, 1)
+    now = datetime.now()
+    elapsed = max(5, min(270, (now.hour * 60 + now.minute) - 9 * 60))
+    projected_lots = current_lots / elapsed * 270
+    expected_lots = previous_lots * elapsed / 270
+    relative_volume = current_lots / expected_lots if expected_lots else 0
+    current_turnover = current_lots * 1000 * price
+    current_amplitude = (high - low) / (rt.get("realtime_price") or price) * 100 if high and low and price else 0
+    is_finance = stock.get("sector") == "金融"
 
-    long_score = liquidity + min(22, max(0, change) * 3.2) + (18 if above else 0) + min(18, max(0, range_pos - 45) * .45)
-    short_score = liquidity + min(22, max(0, -change) * 3.2) + (18 if above is False else 0) + min(18, max(0, 55 - range_pos) * .45)
-    # Penalize chasing near the daily limit and names with a costly spread.
-    chase_penalty = max(0, abs(change) - 6) * 6
-    spread_penalty = max(0, spread_pct - .18) * 80
-    long_score -= chase_penalty + spread_penalty
-    short_score -= chase_penalty + spread_penalty
+    reject = []
+    if rt.get("price_source") in ("previous_close", "bid_ask_midpoint"): reject.append("本輪沒有有效即時成交價")
+    if rt.get("quote_age_seconds") is not None and rt["quote_age_seconds"] > 20: reject.append("報價超過20秒")
+    if not rt.get("bid") or not rt.get("ask"): reject.append("缺少委買委賣")
+    if spread_pct > .25: reject.append(f"價差過大 {spread_pct:.2f}%")
+    if current_lots < max(800, elapsed * 22): reject.append("目前累積量不足")
+    if projected_lots < 5_000: reject.append("預估全日量低於5千張")
+    if current_turnover < 200_000_000: reject.append("目前成交額低於2億元")
+    if relative_volume < 1.25: reject.append(f"量比僅 {relative_volume:.2f}")
+    if current_amplitude < 1.8: reject.append(f"盤中振幅僅 {current_amplitude:.2f}%")
+    if rt.get("vwap_samples", 0) < 2: reject.append("取樣均價尚未穩定")
+    if is_finance and relative_volume < 1.8: reject.append("金融股量比未達1.8")
+    if is_finance and current_turnover < 500_000_000: reject.append("金融股成交額未達5億元")
+    if is_finance and current_amplitude < 2.5: reject.append("金融股盤中振幅未達2.5%")
+
+    liquidity_score = min(25, math.log10(max(current_turnover / 1_000_000, 1)) * 9)
+    volume_score = min(24, max(0, relative_volume - 1) * 18)
+    amplitude_score = min(16, current_amplitude * 3)
+    book = rt.get("book_imbalance", 0)
+    long_score = liquidity_score + volume_score + amplitude_score + min(20, max(0, change) * 3) + (10 if above else 0) + max(-5, min(5, book * 10))
+    short_score = liquidity_score + volume_score + amplitude_score + min(20, max(0, -change) * 3) + (10 if above is False else 0) - max(-5, min(5, book * 10))
+    chase_penalty = max(0, abs(change) - 6) * 10
+    long_score -= chase_penalty
+    short_score -= chase_penalty
     direction = "long" if long_score >= short_score else "short"
     score = max(long_score, short_score)
 
-    if score < 48 or spread_pct > .5:
+    eligible = not reject and abs(change) >= .8 and score >= 58
+    if not eligible:
         direction, action = "neutral", "wait"
-        trigger = "訊號不足：等待價格重新站上/跌破盤中均價，且買賣價差收斂"
+        trigger = "不列入交易：" + ("、".join(reject[:3]) if reject else "方向或分數不足")
     elif direction == "long":
         action = "watch" if change > 6 or range_pos > 92 else "enter"
-        trigger = f"回踩均價 {avg:.2f} 不破後轉強，或帶量突破 {high:.2f}" if avg else f"帶量突破 {high:.2f}"
+        trigger = f"守住取樣均價 {sampled_vwap:.2f} 且買盤量不轉弱；不追突破日高 {high:.2f}"
     else:
         action = "watch" if change < -6 or range_pos < 8 else "enter"
-        trigger = f"反彈均價 {avg:.2f} 不過後轉弱，或放量跌破 {low:.2f}" if avg else f"放量跌破 {low:.2f}"
+        trigger = f"反彈不過取樣均價 {sampled_vwap:.2f} 且賣壓延續；不追殺日低 {low:.2f}"
 
     confidence = "A" if score >= 72 else "B" if score >= 58 else "C"
     return {
         "direction": direction, "action": action, "trade_score": round(max(0, min(100, score)), 1),
         "confidence": confidence, "trigger": trigger, "range_position": round(range_pos, 1),
         "spread_pct": round(spread_pct, 3),
+        "eligible": eligible, "rejection_reasons": reject,
+        "relative_volume": round(relative_volume, 2),
+        "projected_volume_lots": round(projected_lots),
+        "current_turnover_m": round(current_turnover / 1_000_000),
+        "current_amplitude": round(current_amplitude, 2),
         "short_warning": "放空前須確認可當沖資格、券源與強制回補時間" if direction == "short" else None,
     }
 
@@ -565,7 +649,7 @@ def build_reason(stock):
 def suggest_order_type(stock, rt):
     if rt:
         change_pct = rt.get("realtime_change_pct", stock["change_pct"])
-        above_avg  = rt.get("above_avg")
+        above_avg  = rt.get("above_vwap")
     else:
         change_pct = stock["change_pct"]
         above_avg  = stock["momentum"] >= 50
@@ -757,6 +841,12 @@ def api_pre():
     result, candidates = build_common_result(session_type, session_label)
     if result["error"] or not candidates:
         return jsonify(result)
+    try:
+        eligible_codes = get_daytrade_eligible_codes()
+    except Exception as e:
+        result["error"] = "無法確認證交所當沖標的清單；為避免錯誤訊號，本輪停止推薦。"
+        return jsonify(result)
+    candidates = [s for s in candidates if s["code"] in eligible_codes]
     recs = []
     for stock in candidates[:5]:
         open_cond = calc_open_conditions(stock)
@@ -776,8 +866,14 @@ def api_intraday():
     result, candidates = build_common_result(session_type, session_label)
     if result["error"] or not candidates:
         return jsonify(result)
+    try:
+        eligible_codes = get_daytrade_eligible_codes()
+    except Exception:
+        result["error"] = "無法確認證交所當沖標的清單；為避免錯誤訊號，本輪停止推薦。"
+        return jsonify(result)
+    candidates = [s for s in candidates if s["code"] in eligible_codes]
     # Use daily data only to form a liquid universe, then rerank with live data.
-    universe = candidates[:45]
+    universe = candidates[:100]
     watched = [c for c in request.args.get("watch", "").split(",")
                if c.isdigit() and len(c) == 4][:20]
     realtime = get_realtime_prices([s["code"] for s in universe] + watched)
@@ -787,21 +883,30 @@ def api_intraday():
         if not rt:
             continue
         decision = intraday_decision(stock, rt)
+        if not decision["eligible"]:
+            continue
         ranked.append((decision["trade_score"], stock, rt, decision))
     ranked.sort(key=lambda item: item[0], reverse=True)
 
     recs = []
     for _, stock, rt, decision in ranked[:5]:
         direction = decision["direction"]
-        levels = calc_levels(stock, rt.get("realtime_price"), direction if direction != "neutral" else "long")
+        live_stock = {**stock, "high": rt.get("intraday_high") or stock["high"],
+                      "low": rt.get("intraday_low") or stock["low"]}
+        levels = calc_levels(live_stock, rt.get("realtime_price"), direction if direction != "neutral" else "long")
         strength = "strong" if decision["trade_score"] >= 72 else ("medium" if decision["trade_score"] >= 58 else "weak")
         recs.append({**stock, **levels, **decision, "strength": strength,
                      "reason": build_reason(stock), "realtime": rt,
                      "order_tip": suggest_order_type(stock, rt)})
     if not recs:
-        result["error"] = "即時報價暫時不可用；為避免用舊資料產生交易訊號，本次不推薦標的。"
+        result["no_signal_reason"] = "目前沒有同時通過即時量比、成交額、振幅、價差與報價新鮮度的標的；本輪不發出交易訊號。"
     result["recommendations"] = recs
     result["tracked_quotes"] = {code: realtime[code] for code in watched if code in realtime}
+    result["live_filter"] = {
+        "universe_quoted": len(universe), "qualified": len(ranked),
+        "minimum_relative_volume": 1.25, "maximum_spread_pct": .25,
+        "minimum_projected_volume_lots": 5000,
+    }
     return jsonify(result)
 
 
@@ -847,7 +952,7 @@ if __name__ == "__main__":
     import os
     port = int(os.environ.get("PORT", 5000))
     print("=" * 55)
-    print("  台股當沖分析系統（訊號追蹤版 v2.3）")
+    print("  台股當沖分析系統（量能風控版 v2.4）")
     print(f"  port={port}")
     print("=" * 55)
     app.run(debug=False, host="0.0.0.0", port=port)
