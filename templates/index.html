@@ -238,8 +238,9 @@
     .state-box p{font-size:13px;color:var(--t1);line-height:1.7}
 .state-box.err h3{color:var(--red)}
     .signal-panel{display:none;background:var(--bg2);border:1px solid var(--border);border-radius:13px;padding:14px 16px;margin:14px 0;box-shadow:var(--shadow)}
-    .signal-panel.show{display:block}.signal-hd{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
-    .signal-title{font-size:14px;font-weight:800}.signal-controls{display:flex;gap:8px}.signal-list{display:grid;gap:8px}
+    .signal-panel.show{display:block}.signal-hd{display:flex;align-items:center;justify-content:space-between;gap:12px}.signal-panel:not(.collapsed) .signal-hd{margin-bottom:10px}
+    .signal-panel.collapsed .signal-list{display:none}.signal-summary{font-size:11px;color:var(--t1);font-weight:500;margin-left:8px}
+    .signal-title{font-size:14px;font-weight:800}.signal-controls{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}.signal-list{display:grid;gap:8px}
     .signal-item{display:grid;grid-template-columns:80px 1fr auto;gap:10px;align-items:center;padding:10px 12px;border-radius:9px;background:var(--bg3);border:1px solid var(--border)}
     .signal-code{font-weight:800}.signal-meta{font-size:11px;color:var(--t1);line-height:1.55}.signal-state{font-size:11px;font-weight:800;padding:4px 9px;border-radius:20px;white-space:nowrap}
     .sig-armed{color:var(--blue);background:rgba(37,99,184,.1)}.sig-holding{color:#9a6800;background:rgba(234,179,8,.13)}
@@ -374,7 +375,8 @@
   <div class="sub-sess-bar pre_open" id="subSessBar" style="display:none"></div>
   <div class="desc" id="descEl">載入中…</div>
   <div class="signal-panel" id="signalPanel">
-    <div class="signal-hd"><div class="signal-title">🔔 盤中訊號追蹤</div><div class="signal-controls">
+    <div class="signal-hd"><div class="signal-title">🔔 盤中模擬追蹤 <span class="signal-summary" id="signalSummary"></span></div><div class="signal-controls">
+      <button class="btn-refresh" id="btnSignalCollapse" onclick="toggleSignalPanel()">展開</button>
       <button class="btn-refresh" id="btnNotify" onclick="enableSignalAlerts()">開啟通知</button>
       <button class="btn-refresh" id="btnRiskLock" onclick="toggleRiskLock()">停止今日新訊號</button>
       <button class="btn-refresh" onclick="clearFinishedSignals()">清除已結束</button>
@@ -440,13 +442,15 @@ let prevSessionType = null;
 let countdownTimer = null, nextRefreshAt = null;
 const SIGNAL_KEY="dt_signal_tracker_v2";
 const RISK_LOCK_KEY="dt_risk_lock_date";
+const SIGNAL_COLLAPSE_KEY="dt_signal_panel_collapsed";
 let signals=loadSignals();
 
 function todayKey(){return new Date().toLocaleDateString("sv-SE",{timeZone:"Asia/Taipei"});}
 function loadSignals(){try{return JSON.parse(localStorage.getItem(SIGNAL_KEY)||"{}")||{};}catch(e){return {};}}
 function saveSignals(){try{localStorage.setItem(SIGNAL_KEY,JSON.stringify(signals));}catch(e){}}
 function activeSignalCodes(){return Object.values(signals).filter(s=>!["tp2","stop","closed"].includes(s.state)).map(s=>s.code).slice(0,20);}
-function signalLabel(state){return {armed:"等待確認",holding:"已進場追蹤",tp1:"停利①達成",tp2:"停利②出場",stop:"停損出場",closed:"已結束"}[state]||state;}
+function signalLabel(state){return {armed:"等待進場區間",holding:"模擬持有",tp1:"模擬停利①",tp2:"模擬停利②",stop:"模擬停損",closed:"已結束"}[state]||state;}
+function toggleSignalPanel(){const collapsed=!document.getElementById("signalPanel").classList.contains("collapsed");localStorage.setItem(SIGNAL_COLLAPSE_KEY,collapsed?"1":"0");renderSignals();}
 
 function playSignalTone(urgent=false){
   try{const C=window.AudioContext||window.webkitAudioContext,a=new C(),o=a.createOscillator(),g=a.createGain();o.connect(g);g.connect(a.destination);o.frequency.value=urgent?880:660;g.gain.setValueAtTime(.12,a.currentTime);g.gain.exponentialRampToValueAtTime(.001,a.currentTime+.45);o.start();o.stop(a.currentTime+.45);}catch(e){}
@@ -485,7 +489,7 @@ function processSignals(data){
     if(!sig||sig.date!==date){
       signals[s.code]={code:s.code,name:s.name,date,state:"armed",direction:s.direction,qualified:0,missed:0,
         entryLow:s.entry_zone_low,entryHigh:s.entry_zone_high,stop:s.stop_loss,tp1:s.take_profit_1,tp2:s.take_profit_2,
-        score:s.trade_score,event:"等待連續兩次確認",created:now,updated:now};
+        score:s.trade_score,event:"等待有效成交價進入鎖定區間",created:now,updated:now};
     }
   });
 
@@ -498,15 +502,19 @@ function processSignals(data){
       sig.missed=0;
       const inZone=price>=sig.entryLow&&price<=sig.entryHigh;
       const trendOk=sig.direction==="long"?q.above_vwap===true:q.above_vwap===false;
-      const qualified=rec.action==="enter"&&rec.trade_score>=58&&inZone&&trendOk&&(rec.spread_pct??0)<=.5;
-      sig.qualified=qualified?(sig.qualified||0)+1:0;
-      sig.event=qualified?`條件確認 ${sig.qualified}/2`:`等待進場區間 ${fmt2(sig.entryLow)}～${fmt2(sig.entryHigh)}`;
-      if(sig.qualified>=2){
+      const qualified=rec.action==="enter"&&rec.trade_score>=58&&inZone&&trendOk&&(rec.spread_pct??0)<=.25&&q.price_source==="trade";
+      sig.qualified=qualified?1:0;
+      if(!inZone)sig.event=`現價尚未進入 ${fmt2(sig.entryLow)}～${fmt2(sig.entryHigh)}`;
+      else if(q.price_source!=="trade")sig.event="本輪不是有效最新成交價，不模擬進場";
+      else if(!trendOk)sig.event="價格方向尚未通過取樣均價確認";
+      else if(rec.action!=="enter")sig.event="量價合格但位置過熱，等待拉回";
+      else if((rec.spread_pct??0)>.25)sig.event="買賣價差超過 0.25%，等待收斂";
+      if(qualified){
         const riskBlockedNow=isRiskLocked()||Object.values(signals).filter(x=>x.date===date&&x.state==="stop").length>=2;
         if(riskBlockedNow){sig.qualified=0;sig.event=isRiskLocked()?"今日風控鎖定，不再發新訊號":"今日已兩次停損，不再發新訊號";return;}
         const openCount=Object.values(signals).filter(x=>x.date===date&&["holding","tp1"].includes(x.state)).length;
-        if(openCount>=2){sig.qualified=1;sig.event="已有 2 筆追蹤部位，小資風控暫不新增";}
-        else{sig.state="holding";sig.entry=price;sig.entryTime=data.timestamp||new Date().toLocaleTimeString("zh-TW");sig.event="系統條件成立；請先核對券商即時價量，停損停利已鎖定";notifySignal(`${sig.code} ${sig.name} 條件成立`,`${sig.direction==="long"?"偏多":"偏空"} ${fmt2(price)}｜核對券商後自行決定`,true);}
+        if(openCount>=2){sig.qualified=0;sig.event="已有 2 筆模擬部位，小資風控暫不新增";}
+        else{sig.state="holding";sig.entry=price;sig.entryTime=data.timestamp||new Date().toLocaleTimeString("zh-TW");sig.event="已按有效成交價模擬進場；停損停利已鎖定";notifySignal(`${sig.code} ${sig.name} 模擬進場`,`${sig.direction==="long"?"偏多":"偏空"} ${fmt2(price)}｜請以券商成交為準`,true);}
       }
     }else if(sig.state==="holding"||sig.state==="tp1"){
       const stopHit=sig.direction==="long"?price<=sig.stop:price>=sig.stop;
@@ -525,7 +533,11 @@ function renderSignals(){
   const panel=document.getElementById("signalPanel"),list=document.getElementById("signalList");if(!panel||!list)return;
   const rows=Object.values(signals).filter(s=>s.date===todayKey()).sort((a,b)=>(b.updated||0)-(a.updated||0));
   panel.classList.toggle("show",currentTab==="intraday"||rows.length>0);
-  list.innerHTML=rows.length?rows.map(s=>`<div class="signal-item"><div><div class="signal-code">${s.code}</div><div style="font-size:11px;color:var(--t1)">${s.name||""}｜${s.direction==="long"?"做多":"放空"}</div></div><div class="signal-meta">現價 ${fmt2(s.lastPrice??0)}｜進場 ${s.entry?fmt2(s.entry):fmt2(s.entryLow)+"～"+fmt2(s.entryHigh)}<br>停損 ${fmt2(s.stop)}｜停利 ${fmt2(s.tp1)} / ${fmt2(s.tp2)}<br>${s.event||""}</div><div class="signal-state sig-${s.state}">${signalLabel(s.state)}</div></div>`).join(""):`<div class="signal-meta">盤中候選載入後會開始觀察；連續兩次符合條件才發出進場訊號。</div>`;
+  const collapsed=localStorage.getItem(SIGNAL_COLLAPSE_KEY)!=="0";panel.classList.toggle("collapsed",collapsed);
+  const holding=rows.filter(s=>["holding","tp1"].includes(s.state)).length,waiting=rows.filter(s=>s.state==="armed").length,done=rows.length-holding-waiting;
+  document.getElementById("signalSummary").textContent=`模擬持有 ${holding}｜等待 ${waiting}｜結束 ${done}`;
+  document.getElementById("btnSignalCollapse").textContent=collapsed?"展開":"收合";
+  list.innerHTML=rows.length?rows.map(s=>`<div class="signal-item"><div><div class="signal-code">${s.code}</div><div style="font-size:11px;color:var(--t1)">${s.name||""}｜${s.direction==="long"?"做多":"放空"}</div></div><div class="signal-meta">現價 ${fmt2(s.lastPrice??0)}｜${s.entry?"模擬進場 "+fmt2(s.entry):"等待區間 "+fmt2(s.entryLow)+"～"+fmt2(s.entryHigh)}<br>停損 ${fmt2(s.stop)}｜停利 ${fmt2(s.tp1)} / ${fmt2(s.tp2)}<br>${s.event||""}</div><div class="signal-state sig-${s.state}">${signalLabel(s.state)}</div></div>`).join(""):`<div class="signal-meta">尚無模擬訊號。通過全部硬門檻且有效成交價進入鎖定區間時，會直接記錄模擬進場。</div>`;
   const b=document.getElementById("btnNotify");if(b&&"Notification" in window&&Notification.permission==="granted")b.textContent="通知已開啟";
   const rb=document.getElementById("btnRiskLock");if(rb){rb.textContent=isRiskLocked()?"今日已停止新訊號":"停止今日新訊號";rb.style.color=isRiskLocked()?"var(--red)":"";}
 }
