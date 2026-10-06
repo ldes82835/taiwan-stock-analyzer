@@ -8,9 +8,11 @@ from flask_cors import CORS
 import requests
 import urllib3
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
 import math
+import re
 import time
 
 from requests.adapters import HTTPAdapter
@@ -45,6 +47,29 @@ _CACHE = {}
 _CACHE_LOCK = Lock()
 _QUOTE_STATE = {}
 _QUOTE_LOCK = Lock()
+TAIPEI_TZ = ZoneInfo("Asia/Taipei")
+
+
+def taipei_now():
+    """Render runs in UTC; all market decisions must use Taiwan time."""
+    return datetime.now(TAIPEI_TZ)
+
+
+def normalized_market_date(value):
+    """Normalize TWSE Gregorian/ROC date strings to YYYYMMDD when possible."""
+    digits = re.sub(r"\D", "", str(value or ""))
+    if len(digits) == 8 and digits.startswith("20"):
+        return digits
+    if len(digits) == 7:
+        try:
+            return f"{int(digits[:3]) + 1911:04d}{digits[3:]}"
+        except ValueError:
+            pass
+    return digits
+
+
+def plain_twse_text(value):
+    return re.sub(r"<[^>]+>", "", str(value or "")).strip()
 
 
 def cached(key, ttl, loader, stale_ttl=600):
@@ -183,7 +208,7 @@ def safe_float(s):
 
 
 def market_session():
-    now = datetime.now()
+    now = taipei_now()
     t = now.hour * 60 + now.minute
     if t < 9 * 60:
         return "pre", "盤前（尚未開盤）"
@@ -193,7 +218,7 @@ def market_session():
 
 
 def sub_session():
-    now = datetime.now()
+    now = taipei_now()
     t = now.hour * 60 + now.minute
     if t < 9 * 60:
         return "pre_open", "開盤前準備"
@@ -214,8 +239,78 @@ def sub_session():
 #  資料取得
 # ─────────────────────────────────────────
 
+def get_twse_same_day_close(trade_date):
+    """Official same-day closing data. Unlike STOCK_DAY_ALL, this is not T+1."""
+    urls = (
+        "https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX"
+        f"?date={trade_date}&type=ALLBUT0999&response=json",
+        "https://www.twse.com.tw/exchangeReport/MI_INDEX"
+        f"?response=json&type=ALLBUT0999&date={trade_date}",
+    )
+    last_error = None
+    for url in urls:
+        try:
+            r = HTTP.get(url, timeout=(3.5, 15))
+            r.raise_for_status()
+            body = r.json()
+            if body.get("stat") != "OK":
+                continue
+            for table in reversed(body.get("tables", [])):
+                fields = [plain_twse_text(x) for x in table.get("fields", [])]
+                if "證券代號" not in fields or "收盤價" not in fields:
+                    continue
+                idx = {name: i for i, name in enumerate(fields)}
+
+                def cell(row, name, default="0"):
+                    pos = idx.get(name)
+                    return row[pos] if pos is not None and pos < len(row) else default
+
+                rows = []
+                for item in table.get("data", []):
+                    code = plain_twse_text(cell(item, "證券代號", ""))
+                    if not (code.isdigit() and len(code) == 4):
+                        continue
+                    sign = plain_twse_text(cell(item, "漲跌(+/-)", ""))
+                    diff = plain_twse_text(cell(item, "漲跌價差", "0"))
+                    if sign in ("-", "－") and not diff.startswith("-"):
+                        diff = "-" + diff
+                    elif sign in ("+", "＋") and not diff.startswith(("+", "-")):
+                        diff = "+" + diff
+                    rows.append([
+                        code,
+                        plain_twse_text(cell(item, "證券名稱", "")),
+                        plain_twse_text(cell(item, "成交股數", "0")).replace(",", ""),
+                        plain_twse_text(cell(item, "成交金額", "0")).replace(",", ""),
+                        plain_twse_text(cell(item, "開盤價", "0")),
+                        plain_twse_text(cell(item, "最高價", "0")),
+                        plain_twse_text(cell(item, "最低價", "0")),
+                        plain_twse_text(cell(item, "收盤價", "0")),
+                        diff,
+                    ])
+                if len(rows) > 100:
+                    print(f"[MI_INDEX OK] {len(rows)} 檔，date={trade_date}")
+                    return rows, trade_date
+        except Exception as exc:
+            last_error = exc
+            print(f"[MI_INDEX ERROR] {exc}")
+    if last_error:
+        raise last_error
+    raise RuntimeError("TWSE same-day close is not published yet")
+
+
 def get_all_stocks():
-    # 優先用 TWSE Open API（可從海外伺服器存取）
+    now = taipei_now()
+    today = now.strftime("%Y%m%d")
+
+    # 盤後必須用當日收盤資料。STOCK_DAY_ALL 約 T+1 才更新，不能拿來
+    # 產生今日盤後／明日候選，否則會把昨日收盤誤標成今日價格。
+    if now.weekday() < 5 and (now.hour * 60 + now.minute) >= 13 * 60 + 30:
+        try:
+            return get_twse_same_day_close(today)
+        except Exception as e:
+            print(f"[SAME DAY CLOSE UNAVAILABLE] {e}")
+
+    # 盤中與盤前以最近完整交易日作基準，再由 MIS 即時成交覆蓋。
     url_open = "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL"
     try:
         r = HTTP.get(url_open, timeout=(3.5, 12))
@@ -223,7 +318,7 @@ def get_all_stocks():
         items = r.json()
         if items and isinstance(items, list) and len(items) > 100:
             rows = []
-            date_str = items[0].get("Date", datetime.now().strftime("%Y%m%d")) if items else ""
+            date_str = normalized_market_date(items[0].get("Date", "")) if items else ""
             for item in items:
                 chg = str(item.get("Change", "0") or "0").strip()
                 # 確保漲跌有 +/- 前綴，供後續計數使用
@@ -566,7 +661,7 @@ def intraday_decision(stock, rt):
     range_pos = (price - low) / (high - low) * 100 if high and low and high > low else 50
     current_lots = rt.get("realtime_volume_k", 0) / 1000
     previous_lots = max(stock.get("volume", 0) / 1000, 1)
-    now = datetime.now()
+    now = taipei_now()
     elapsed = max(5, min(270, (now.hour * 60 + now.minute) - 9 * 60))
     projected_lots = current_lots / elapsed * 270
     expected_lots = previous_lots * elapsed / 270
@@ -793,7 +888,9 @@ def build_common_result(session_type, session_label):
     # These three upstream calls are independent. Running them concurrently
     # changes normal latency from their sum to roughly the slowest one.
     with ThreadPoolExecutor(max_workers=3) as pool:
-        rows_future = pool.submit(cached, "all_stocks", 25 if session_type == "intraday" else 180, load_rows, 1800)
+        market_day = taipei_now().strftime("%Y%m%d")
+        rows_key = f"all_stocks:{session_type}:{market_day}"
+        rows_future = pool.submit(cached, rows_key, 25 if session_type == "intraday" else 180, load_rows, 1800)
         index_future = pool.submit(cached, "market_index", 10 if session_type == "intraday" else 60, get_market_index, 300)
         otc_future = pool.submit(cached, "otc_index", 10 if session_type == "intraday" else 60, get_otc_index, 300)
         (raw_rows, data_date), rows_cached, rows_stale = rows_future.result()
@@ -802,8 +899,8 @@ def build_common_result(session_type, session_label):
     ss_type, ss_label   = sub_session()
     result = {
         "status": session_type, "status_label": session_label,
-        "timestamp":   datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "data_date":   data_date,
+        "timestamp":   taipei_now().strftime("%Y-%m-%d %H:%M:%S"),
+        "data_date":   normalized_market_date(data_date),
         "market_index": index_data,
         "otc_index":    otc_data,
         "sub_session":  {"type": ss_type, "label": ss_label},
@@ -816,6 +913,17 @@ def build_common_result(session_type, session_label):
     }
     if not raw_rows:
         result["error"] = "無法取得市場數據。可能原因：今日為非交易日、TWSE API 暫時無回應。"
+        return result, []
+    # Fail closed: a stale official snapshot must never be presented as today's
+    # close or used to calculate tomorrow's entry/exit levels.
+    expected_date = taipei_now().strftime("%Y%m%d")
+    if (session_type == "post" and taipei_now().weekday() < 5
+            and normalized_market_date(data_date) != expected_date):
+        result["error"] = (
+            f"證交所今日盤後資料尚未完成發布（目前資料日 {data_date or '未知'}，"
+            f"應為 {expected_date}）。為避免使用昨日價格，暫停產生明日候選。"
+        )
+        result["freshness"]["date_mismatch"] = True
         return result, []
     up   = sum(1 for r in raw_rows if len(r) > 8 and r[8].strip().startswith("+"))
     down = sum(1 for r in raw_rows if len(r) > 8 and r[8].strip().startswith("-"))

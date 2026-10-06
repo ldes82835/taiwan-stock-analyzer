@@ -350,7 +350,7 @@
       <div class="bth-item"><div class="bth-lbl">總檔數</div><div class="bth-val neutral" id="cntAll">—</div></div>
     </div>
     <div class="sep"></div>
-    <div class="mkt-time"><small>資料更新時間</small><p id="dataTime">—</p></div>
+    <div class="mkt-time"><small>行情日期／更新時間</small><p id="dataTime">—</p></div>
   </div>
   <div class="session-track">
     <div class="sess-node" id="tab-pre">
@@ -939,7 +939,8 @@ async function loadData() {
     refreshStatusPill();
     if(data.sub_session) updateSubSessBanner(data.sub_session);
     document.getElementById("descEl").textContent=TABS_DESC[currentTab]??TABS_DESC.post;
-    document.getElementById("dataTime").textContent=data.timestamp??"—";
+    const marketDate=(data.data_date||"").replace(/^(\d{4})(\d{2})(\d{2})$/,"$1-$2-$3");
+    document.getElementById("dataTime").textContent=`${marketDate||"日期未知"}｜${data.timestamp??"—"}`;
     if(data.market_index){
       const idx=data.market_index;
       document.getElementById("idxPrice").textContent=idx.price.toLocaleString("zh-TW",{minimumFractionDigits:2});
