@@ -388,11 +388,11 @@
     <div class="crit"><span class="crit-icon">📐</span>盤中振幅 ≥ 1.8%</div>
     <div class="crit"><span class="crit-icon">💰</span>股價 20–300 元</div>
     <div class="crit"><span class="crit-icon">💧</span>成交額 ≥ 2 億、價差 ≤ 0.25%</div>
-    <div class="crit"><span class="crit-icon">🎯</span>價格停損約 0.6%–2%</div>
+    <div class="crit"><span class="crit-icon">🎯</span>結構停損約 0.8%–3.5%</div>
     <div class="crit"><span class="crit-icon">⚖️</span>風險報酬 ≥ 1:1.5</div>
   </div>
   <div class="sec-hd">
-    <div class="sec-title" id="secTitle">🎯 當沖推薦標的 Top 5</div>
+    <div class="sec-title" id="secTitle">🎯 當沖觀察標的 Top 5</div>
     <div class="sec-badge" id="filterBadge">篩選中…</div>
   </div>
   <div class="grid" id="grid">
@@ -416,14 +416,14 @@
 const API = { pre: "/api/pre", intraday: "/api/intraday", post: "/api/post" };
 const TABS_DESC = {
   pre:      "📊 盤前分析：以前一交易日收盤數據為基礎，預算今日觀察清單，並提供開盤量能確認條件。建議搭配期指走勢確認方向，開盤量能確認後再進場。",
-  intraday: "⚡ 盤中即時：以最新成交數據動態篩選標的，疊加即時報價、估算均價位置、委買委賣報價，並依當下盤況提供 IOC / ROD 委託建議。",
+  intraday: "⚡ 盤中即時：以最新成交數據動態篩選上市普通股，疊加即時報價、參考價位置、委買委賣報價，並依當下盤況提供 IOC / ROD 委託建議。",
   post:     "🎯 明日交易候選：依今日收盤的流動性、振幅、收盤位置與多空動能挑選 Top 5。這是明日觀察優先序，必須等開盤後觸發條件成立才進場。",
 };
 const SUB_SESS = {
   pre_open: { cls: "pre_open", icon: "🌙", tip: "建立觀察清單，預設好進出場價位，確認大盤期指方向後等待開盤。" },
   early:    { cls: "early",    icon: "🌅", tip: "重點觀察量能是否爆發。開盤5分鐘量 > 昨均量 1.5 倍才考慮進場，切勿在此階段衝動追高。" },
-  mid:      { cls: "mid",      icon: "⏰", tip: "震盪格局為主，等待量縮守穩後的突破機會。振幅收縮後的量能放大才是真突破，持倉注意均價線位置。" },
-  late_mid: { cls: "late_mid", icon: "🕐", tip: "部位開始整理。強勢股若依然守高可持續，弱勢股若跌破均價線建議先行減倉。" },
+  mid:      { cls: "mid",      icon: "⏰", tip: "震盪格局為主，等待量縮守穩後的突破機會。振幅收縮後的量能放大才是真突破，持倉注意即時參考價位置。" },
+  late_mid: { cls: "late_mid", icon: "🕐", tip: "部位開始整理。強勢股若依然守高可持續，弱勢股若跌破即時參考價建議先行減倉。" },
   late:     { cls: "late",     icon: "⚡", tip: "尾盤決戰：主力開始平倉，量的變化是關鍵。強勢守高可留倉，弱勢應在 13:15 前完成平倉。" },
   closing:  { cls: "closing",  icon: "🔔", tip: "⚠️ 最後試算（13:25–13:30）：撮合價量劇烈變化，當沖務必在此前完成平倉！觀察收盤方向作為明日參考。" },
   closed:   { cls: "closed",   icon: "🌙", tip: "今日交易已結束。系統會直接整理明日交易候選 Top 5，明早仍須等待開盤條件確認。" },
@@ -501,12 +501,12 @@ function processSignals(data){
       if(!rec){sig.missed=(sig.missed||0)+1;if(sig.missed>=10){sig.state="closed";sig.event="連續未入選，取消觀察";}return;}
       sig.missed=0;
       const inZone=price>=sig.entryLow&&price<=sig.entryHigh;
-      const trendOk=sig.direction==="long"?q.above_vwap===true:q.above_vwap===false;
+      const trendOk=sig.direction==="long"?q.above_reference===true:q.above_reference===false;
       const qualified=rec.action==="enter"&&rec.trade_score>=58&&inZone&&trendOk&&(rec.spread_pct??0)<=.25&&q.price_source==="trade";
       sig.qualified=qualified?1:0;
       if(!inZone)sig.event=`現價尚未進入 ${fmt2(sig.entryLow)}～${fmt2(sig.entryHigh)}`;
       else if(q.price_source!=="trade")sig.event="本輪不是有效最新成交價，不模擬進場";
-      else if(!trendOk)sig.event="價格方向尚未通過取樣均價確認";
+      else if(!trendOk)sig.event="價格方向尚未通過即時參考價確認";
       else if(rec.action!=="enter")sig.event="量價合格但位置過熱，等待拉回";
       else if((rec.spread_pct??0)>.25)sig.event="買賣價差超過 0.25%，等待收斂";
       if(qualified){
@@ -602,6 +602,7 @@ const fmtLots = s => { const l=s/1000; return l>=10000?(l/10000).toFixed(1)+" �
 /* 台股升降單位 */
 function tickSize(p) { return p<10?.01:p<50?.05:p<100?.1:p<500?.5:p<1000?1:5; }
 function tickFloor(p) { const t=tickSize(p); return +(Math.floor(Math.round(p/t*1e9)/1e9)*t).toFixed(t<.1?2:t<1?1:0); }
+function tickCeil(p) { const t=tickSize(p); return +(Math.ceil(Math.round(p/t*1e9)/1e9)*t).toFixed(t<.1?2:t<1?1:0); }
 function fmtTick(p)  { const t=tickSize(p); return Number(p).toFixed(t<.1?2:t<1?1:0); }
 
 function tickClock() { document.getElementById("clock").textContent = new Date().toLocaleTimeString("zh-TW",{hour12:false}); }
@@ -674,13 +675,17 @@ function togglePL(id) {
   el.style.display = open ? "none" : "block";
   if(btn){ btn.innerHTML=open?"💰 自訂進場計算機":"▲ 收起計算機"; btn.classList.toggle("open",!open); }
 }
-function calcPL(id,val) {
+function calcPL(id,val,direction=null) {
   const price=parseFloat(val), resEl=document.getElementById("pl-res-"+id);
   if(!resEl) return;
   if(!price||price<=0){resEl.innerHTML="";return;}
-  const sl=tickFloor(price*.985), risk=price-sl;
-  const tp1=tickFloor(price+risk*1.5), tp2=tickFloor(price+risk*2.5);
-  const slP=fmt2((sl-price)/price*100), tp1P=fmt2((tp1-price)/price*100), tp2P=fmt2((tp2-price)/price*100);
+  direction=direction||document.getElementById("pl-input-"+id)?.dataset.direction||"long";
+  const isShort=direction==="short";
+  const sl=isShort?tickCeil(price*1.015):tickFloor(price*.985), risk=Math.abs(price-sl);
+  const tp1=isShort?tickCeil(price-risk*1.5):tickFloor(price+risk*1.5);
+  const tp2=isShort?tickCeil(price-risk*2.5):tickFloor(price+risk*2.5);
+  const signedPct=p=>(isShort?(price-p):(p-price))/price*100;
+  const slP=fmt2(-Math.abs((sl-price)/price*100)), tp1P=fmt2(signedPct(tp1)), tp2P=fmt2(signedPct(tp2));
   resEl.innerHTML=`<div class="pl-result">
     <div class="pl-row"><span class="pl-lbl">停利②</span><span class="pl-val" style="color:var(--red2)">${fmtTick(tp2)}</span><span class="pl-pct pct-pos">+${tp2P}%</span></div>
     <div class="pl-row"><span class="pl-lbl">停利①</span><span class="pl-val" style="color:var(--red)">${fmtTick(tp1)}</span><span class="pl-pct pct-pos">+${tp1P}%</span></div>
@@ -692,15 +697,15 @@ function buildPLCalc(s) {
   const id=s.code;
   return `<button class="pl-toggle" id="pl-btn-${id}" onclick="togglePL('${id}')">💰 自訂進場計算機</button>
   <div class="pl-calc" id="pl-${id}">
-    <div class="pl-calc-title">自訂進場計算（停損固定 1.5%，風報比 1:1.5 / 1:2.5）</div>
-    <div class="pl-input-row"><label>進場價</label><input type="number" step="0.01" min="1" placeholder="${fmt2(s.close)}" oninput="calcPL('${id}',this.value)" id="pl-input-${id}"></div>
+    <div class="pl-calc-title">快速情境試算（${s.direction==="short"?"放空":"做多"}、固定 1.5%，不取代上方結構停損）</div>
+    <div class="pl-input-row"><label>進場價</label><input type="number" step="0.01" min="1" placeholder="${fmt2(s.close)}" data-direction="${s.direction||"long"}" oninput="calcPL('${id}',this.value,'${s.direction||"long"}')" id="pl-input-${id}"></div>
     <div id="pl-res-${id}"></div>
   </div>`;
 }
 function buildVwap(s) {
   if(!s.vwap_est) return "";
   const cls=s.above_vwap?"vwap-above":"vwap-below", icon=s.above_vwap?"▲":"▼";
-  return `<div class="vwap-ind ${cls}">📊 均價估算 ${fmt2(s.vwap_est)}｜${icon} 收在均價${s.above_vwap?"上方（偏強）":"下方（偏弱）"}</div>`;
+  return `<div class="vwap-ind ${cls}">📊 當日典型價 (高+低+收)/3：${fmt2(s.vwap_est)}｜${icon} 收在典型價${s.above_vwap?"上方":"下方"}（非VWAP）</div>`;
 }
 
 function buildLevels(s) {
@@ -713,16 +718,16 @@ function buildLevels(s) {
     <div class="lv-row"><div class="lv-dot dot-entry"></div><div class="lv-label">進場區間</div><div class="lv-price entry">${fmt2(s.entry_zone_low??en)}～${fmt2(s.entry_zone_high??en)}</div><div class="lv-pct pct-neu">${isShort?"放空":"做多"}</div></div>
     <div class="lv-row"><div class="lv-dot dot-sl"></div><div class="lv-label">停損</div><div class="lv-price sl">NT$ ${fmt2(sl)}</div><div class="lv-pct pct-neg">-${fmt2(pct(sl))}%</div></div>
   </div>
-  ${s.suggested_shares_100k!==undefined?`<div class="reason">💰 小資部位試算：本金 10 萬約 ${shares} 股，預估最大虧損約 NT$ ${s.estimated_max_loss_100k??0}（單筆風險 0.75%，非下單指示）</div>`:""}`;
+  ${s.suggested_shares_100k!==undefined?`<div class="reason">💰 小資部位試算：本金 10 萬約 ${shares} 股，預估最大虧損約 NT$ ${s.estimated_max_loss_100k??0}（單筆風險 0.75%，非下單指示）${s.risk_basis?`<br>🛡️ ${s.risk_basis}`:""}</div>`:""}`;
 }
 
 function buildDecision(s) {
   if(!s.trade_score) return "";
   const action={enter:"條件接近，可等觸發",watch:"避免追價，先觀察",wait:"暫不交易"}[s.action]||"觀察";
   return `<div class="order-tip ot-${s.action==="wait"?"neutral":s.direction==="short"?"green":"blue"}">
-    <span class="ot-badge">${s.confidence??"C"}｜${s.trade_score}</span>
+    <span class="ot-badge">優先序 ${s.trade_score}</span>
     <span><strong>${action}：</strong>${s.trigger||"等待明確訊號"}${s.short_warning?`<br>⚠️ ${s.short_warning}`:""}</span>
-  </div>`;
+  </div><div class="reason">ℹ️ 策略分數只用於排序，尚未累積足夠樣本，不能解讀為勝率。</div>`;
 }
 function buildStats(s) {
   const mw=Math.min(100,Math.max(0,s.momentum)).toFixed(0);
@@ -747,6 +752,10 @@ function buildStats(s) {
 }
 function buildScoreBreakdown(s) {
   const sb=s.score_breakdown; if(!sb) return "";
+  if(Array.isArray(sb.components)) return `<div class="score-bd">
+    <div class="sb-header"><span class="sb-ttl">📊 策略評分構成</span><span class="sb-formula">${sb.note||"非勝率"}</span></div>
+    <div class="sb-chips">${sb.components.map(c=>`<span class="sb-chip">${c.label} ${c.value>=0?"+":""}${fmt2(c.value)}</span>`).join("")}<span class="sb-chip total">優先序 ${fmt2(sb.total)}</span></div>
+  </div>`;
   return `<div class="score-bd">
     <div class="sb-header"><span class="sb-ttl">📊 評分構成（透明化）</span><span class="sb-formula">${sb.formula} = ${sb.total}</span></div>
     <div class="sb-chips"><span class="sb-chip vol">量能 √${sb.vol_factor}</span><span class="sb-chip amp">振幅 ${sb.amp_factor}%</span><span class="sb-chip mom">動能 ${sb.mom_factor}×</span><span class="sb-chip total">總分 ${sb.total}</span></div>
@@ -755,7 +764,7 @@ function buildScoreBreakdown(s) {
 function buildCardHeader(s,rank) {
   const dirMap={long:[`<span class="badge badge-long">▲ 偏多</span>`,"up"],short:[`<span class="badge badge-short">▼ 偏空</span>`,"down"],neutral:[`<span class="badge badge-neutral">◆ 觀察</span>`,"neutral"]};
   const [dirBadge,priceClass]=dirMap[s.direction]||dirMap.neutral;
-  const sLbl={strong:"強烈推薦",medium:"中等推薦",weak:"一般關注"}[s.strength]??"一般關注";
+  const sLbl={strong:"高度關注",medium:"優先觀察",weak:"一般觀察"}[s.strength]??"一般觀察";
   const sc=SECTOR_COLORS[s.sector]||"#9ca3af";
   const sectorBadge=s.sector?`<span class="sector-pill" style="background:${sc}1a;color:${sc};border-color:${sc}55">${s.sector}</span>`:"";
   let gapBadge="";
@@ -790,8 +799,8 @@ function buildIntradayCard(s,rank) {
   let rtHtml="";
   if(s.realtime){
     const rt=s.realtime, rc=rt.realtime_change_pct>=0?"up":"down";
-    const avgText=rt.sampled_vwap?(rt.above_vwap?`現價在取樣均價 ${fmt2(rt.sampled_vwap)} 上方`:`現價在取樣均價 ${fmt2(rt.sampled_vwap)} 下方`):"取樣均價建立中";
-    const avgCls=rt.above_vwap===true?"avg-above":rt.above_vwap===false?"avg-below":"";
+    const avgText=rt.reference_price?(rt.above_reference?`現價在盤中參考價 ${fmt2(rt.reference_price)} 上方`:`現價在盤中參考價 ${fmt2(rt.reference_price)} 下方`):"盤中參考價建立中";
+    const avgCls=rt.above_reference===true?"avg-above":rt.above_reference===false?"avg-below":"";
     const baHtml=(rt.bid&&rt.ask)?`<div class="ba-row">
       <div class="ba-item"><div class="ba-lbl">委買 Bid</div><div class="ba-val bid-v">${fmt2(rt.bid)}</div></div>
       <div class="ba-item"><div class="ba-lbl">委賣 Ask</div><div class="ba-val ask-v">${fmt2(rt.ask)}</div></div>
@@ -800,12 +809,12 @@ function buildIntradayCard(s,rank) {
     rtHtml=`<div class="rt-bar"><div class="rt-dot"></div>
       <div><div class="rt-chg ${rc}">報價 ${rt.quote_time||"—"}｜${rt.price_source==="trade"?"最新成交":"非逐筆成交"}</div></div>
       ${rt.realtime_volume_k?`<div class="rt-vol">累積量 ${fmtLots(rt.realtime_volume_k)}</div>`:""}
-    </div>${baHtml}${avgText?`<div class="avg-ind ${avgCls}">${avgText}（伺服器取樣，非交易所正式 VWAP）</div>`:""}`;
+    </div>${baHtml}${avgText?`<div class="avg-ind ${avgCls}">${avgText}（開、高、低、現價平均；非VWAP）</div>`:""}`;
   }
   const liveMetrics=`<div class="reason">⚡ 即時量比 ${fmt2(s.relative_volume??0)}｜預估全日量 ${(s.projected_volume_lots??0).toLocaleString()} 張｜成交額 ${s.current_turnover_m??0} 百萬｜盤中振幅 ${fmt2(s.current_amplitude??0)}%</div>`;
   let otHtml="";
   if(s.order_tip){const ot=s.order_tip;otHtml=`<div class="order-tip ot-${ot.color}"><span class="ot-badge">${ot.type}</span><span><strong>${ot.label}：</strong>${ot.tip}</span></div>`;}
-  return `<div class="card ${s.strength}">${buildCardHeader(s,rank)}${rtHtml}${liveMetrics}${buildDecision(s)}${otHtml}${buildLevels(s)}${buildPLCalc(s)}${buildStats(s)}<div class="reason">💡 前一日初選：${s.reason}</div></div>`;
+  return `<div class="card ${s.strength}">${buildCardHeader(s,rank)}${rtHtml}${liveMetrics}${buildDecision(s)}${otHtml}${buildLevels(s)}${buildPLCalc(s)}${buildStats(s)}${buildScoreBreakdown(s)}<div class="reason">💡 前一日流動性初選：${s.reason}</div></div>`;
 }
 function buildPostCard(s,rank) {
   const invalid=s.invalidation?`<div class="reason">🛑 取消條件：${s.invalidation}</div>`:"";
